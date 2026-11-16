@@ -1,0 +1,21 @@
+{
+  "name": "certstack",
+  "version": "0.2.0",
+  "private": true,
+  "description": "AWS 认证刷题应用：SAA-C03 / DOP-C02 备考 + AWS 服务实验台",
+  "workspaces": [
+    "infra",
+    "web"
+  ],
+  "scripts": {
+    "data": "python3 data/export_content.py",
+    "dev": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "synth": "npm run synth -w infra",
+    "diff": "npm run diff -w infra",
+    "deploy": "npm run deploy -w infra"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

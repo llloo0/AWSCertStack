@@ -1,0 +1,46 @@
+{
+  "SAA-C03": {
+    "title": "AWS Certified Solutions Architect – Associate",
+    "shortTitle": "SAA-C03",
+    "totalQuestions": 65,
+    "minutes": 130,
+    "passingScore": 720,
+    "scoreScale": [100, 1000],
+    "domains": [
+      { "id": 1, "name": "Design Secure Architectures", "weight": 0.3 },
+      { "id": 2, "name": "Design Resilient Architectures", "weight": 0.26 },
+      { "id": 3, "name": "Design High-Performing Architectures", "weight": 0.24 },
+      { "id": 4, "name": "Design Cost-Optimized Architectures", "weight": 0.2 }
+    ]
+  },
+  "DOP-C02": {
+    "title": "AWS Certified DevOps Engineer – Professional",
+    "shortTitle": "DOP-C02",
+    "totalQuestions": 75,
+    "minutes": 180,
+    "passingScore": 750,
+    "scoreScale": [100, 1000],
+    "domains": [
+      { "id": 1, "name": "SDLC Automation", "weight": 0.22 },
+      { "id": 2, "name": "Configuration Management and Infrastructure as Code", "weight": 0.17 },
+      { "id": 3, "name": "Resilient Cloud Solutions", "weight": 0.15 },
+      { "id": 4, "name": "Monitoring and Logging", "weight": 0.15 },
+      { "id": 5, "name": "Incident and Event Response", "weight": 0.14 },
+      { "id": 6, "name": "Security and Compliance", "weight": 0.17 }
+    ]
+  },
+  "DVA-C02": {
+    "title": "AWS Certified Developer – Associate",
+    "shortTitle": "DVA-C02",
+    "totalQuestions": 65,
+    "minutes": 130,
+    "passingScore": 720,
+    "scoreScale": [100, 1000],
+    "domains": [
+      { "id": 1, "name": "Development with AWS Services", "weight": 0.32 },
+      { "id": 2, "name": "Security", "weight": 0.26 },
+      { "id": 3, "name": "Deployment", "weight": 0.24 },
+      { "id": 4, "name": "Troubleshooting and Optimization", "weight": 0.18 }
+    ]
+  }
+}
