@@ -1,162 +1,23 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CertStack step 01 - static web on a private S3 bucket behind CloudFront (OAC)
+Description: CertStack step 01 - static site (S3 + CloudFront)
+
+# 这是 Step 01 的起点，不是成品。
+# 按 docs/DEVOPS-FROM-ZERO.md 的 Increment 0 开始，一次只加一个资源。
+#
+# 现在这个模板还不能部署：Resources 是空的。
+# 先把 WebBucket 写进来，跑一次 deploy，拿到桶名，再进入 Increment 1。
 
 Parameters:
   Env:
     Type: String
     Default: dev
-    AllowedValues: [dev, prod]
-  Stage:
-    Type: String
-    Default: 01-static-web
-    Description: Deployment stage, written into the frontend config
+    AllowedValues:
+      - dev
+      - prod
 
 Resources:
-  WebBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      VersioningConfiguration:
-        Status: Enabled
-      LifecycleConfiguration:
-        Rules:
-          - Id: abort-incomplete-multipart
-            Status: Enabled
-            AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 7
-      Tags:
-        - { Key: Project, Value: CertStack }
-        - { Key: Env, Value: !Ref Env }
-        - { Key: Stage, Value: !Ref Stage }
+  # Increment 0：
+  # WebBucket:
+  #   Type: AWS::S3::Bucket
 
-  WebOAC:
-    Type: AWS::CloudFront::OriginAccessControl
-    Properties:
-      OriginAccessControlConfig:
-        Name: !Sub certstack-${Env}-web-oac
-        Description: OAC for the CertStack web bucket
-        OriginAccessControlOriginType: s3
-        SigningBehavior: always
-        SigningProtocol: sigv4
-
-  SecurityHeadersPolicy:
-    Type: AWS::CloudFront::ResponseHeadersPolicy
-    Properties:
-      ResponseHeadersPolicyConfig:
-        Name: !Sub certstack-${Env}-security
-        SecurityHeadersConfig:
-          ContentSecurityPolicy:
-            ContentSecurityPolicy: >-
-              default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';
-              script-src 'self'; connect-src 'self' https://*.amazonaws.com https://*.amazoncognito.com;
-              base-uri 'self'; frame-ancestors 'none'
-            Override: true
-          ContentTypeOptions:
-            Override: true
-          FrameOptions:
-            FrameOption: DENY
-            Override: true
-          ReferrerPolicy:
-            ReferrerPolicy: strict-origin-when-cross-origin
-            Override: true
-          StrictTransportSecurity:
-            AccessControlMaxAgeSec: 31536000
-            IncludeSubdomains: true
-            Override: true
-          XSSProtection:
-            Protection: true
-            ModeBlock: true
-            Override: true
-
-  Distribution:
-    Type: AWS::CloudFront::Distribution
-    Properties:
-      DistributionConfig:
-        Comment: !Sub certstack-${Env}-${Stage}
-        Enabled: true
-        HttpVersion: http2and3
-        IPV6Enabled: true
-        PriceClass: PriceClass_200
-        DefaultRootObject: index.html
-        Origins:
-          - Id: web
-            DomainName: !GetAtt WebBucket.RegionalDomainName
-            OriginAccessControlId: !Ref WebOAC
-            S3OriginConfig:
-              OriginAccessIdentity: ''
-        DefaultCacheBehavior:
-          TargetOriginId: web
-          ViewerProtocolPolicy: redirect-to-https
-          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # CachingOptimized
-          ResponseHeadersPolicyId: !Ref SecurityHeadersPolicy
-          Compress: true
-          AllowedMethods: [GET, HEAD, OPTIONS]
-          CachedMethods: [GET, HEAD]
-        CacheBehaviors:
-          - PathPattern: /config.json
-            TargetOriginId: web
-            ViewerProtocolPolicy: redirect-to-https
-            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
-            ResponseHeadersPolicyId: !Ref SecurityHeadersPolicy
-            Compress: false
-          - PathPattern: /content/index.json
-            TargetOriginId: web
-            ViewerProtocolPolicy: redirect-to-https
-            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
-            ResponseHeadersPolicyId: !Ref SecurityHeadersPolicy
-            Compress: true
-          - PathPattern: /content/*
-            TargetOriginId: web
-            ViewerProtocolPolicy: redirect-to-https
-            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # CachingOptimized
-            ResponseHeadersPolicyId: !Ref SecurityHeadersPolicy
-            Compress: true
-        CustomErrorResponses:
-          - ErrorCode: 403
-            ResponseCode: 200
-            ResponsePagePath: /index.html
-            ErrorCachingMinTTL: 0
-          - ErrorCode: 404
-            ResponseCode: 200
-            ResponsePagePath: /index.html
-            ErrorCachingMinTTL: 0
-      Tags:
-        - { Key: Project, Value: CertStack }
-        - { Key: Env, Value: !Ref Env }
-        - { Key: Stage, Value: !Ref Stage }
-
-  WebBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref WebBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: AllowCloudFrontOAC
-            Effect: Allow
-            Principal:
-              Service: cloudfront.amazonaws.com
-            Action: s3:GetObject
-            Resource: !Sub arn:${AWS::Partition}:s3:::${WebBucket}/*
-            Condition:
-              StringEquals:
-                AWS:SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}
-
-Outputs:
-  AppUrl:
-    Description: Open this URL in a browser
-    Value: !Sub https://${Distribution.DomainName}
-  DistributionDomain:
-    Value: !GetAtt Distribution.DomainName
-  DistributionId:
-    Value: !Ref Distribution
-  WebBucketName:
-    Value: !Ref WebBucket
+Outputs: {}
