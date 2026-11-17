@@ -6,7 +6,7 @@
 - 主 Region：`ap-northeast-1`（东京）
 - 账号：已有，Free Tier 阶段，费用敏感
 - 前端：React + TypeScript + Vite SPA
-- IaC / 流水线：AWS CDK v2 (TypeScript) + CodePipeline / CodeBuild
+- IaC / 流水线：AWS SAM（CloudFormation）+ CodePipeline / CodeBuild
 - 单人使用（Cognito 里就 1~2 个用户），数据可随时重建
 
 ---
@@ -19,7 +19,7 @@
 | --- | --- | --- |
 | 产品层 | 能替代现有的「看题-对答案」流程，支持练习、模考、错题复习、按标签统计 | 每天真的用它刷题 |
 | 学习层 | 把 SAA-C03 与 DOP-C02 考纲里的服务，在真实项目里各用一次 | 每个里程碑写明「本阶段吃透的考点」 |
-| 工程层 | 全部基础设施可代码化重建、可一键销毁、成本可观测 | `cdk deploy` / `cdk destroy` 双向可逆 |
+| 工程层 | 全部基础设施可代码化重建、可一键销毁、成本可观测 | `sam deploy` / 删栈 双向可逆 |
 
 ### 1.2 硬约束
 
@@ -194,8 +194,8 @@ S3 上传题库/内容包
 ```
 GitHub ──(CodeStar Connection)──► CodePipeline
       ├─ Source
-      ├─ Build  : CodeBuild（npm ci / 单测 / tsc / cdk synth）
-      ├─ Deploy : CodeBuild（cdk deploy dev）+ 冒烟测试
+      ├─ Build  : CodeBuild（sam build / 单测 / 模板校验）
+      ├─ Deploy : CodeBuild（sam deploy dev）+ 冒烟测试
       └─ 人工审批 ─► Deploy prod（Lambda 金丝雀 / ECS 蓝绿）
 ```
 
@@ -208,7 +208,7 @@ GitHub ──(CodeStar Connection)──► CodePipeline
 | **API Gateway HTTP API** | $1/百万请求，JWT 授权器开箱即用；REST API 是 $3.5/百万 | REST API（贵、功能用不上）、Lambda Function URL（更便宜但少了路由/授权器/节流，考试相关性低） |
 | **Lambda（arm64）** | 免运维、免费额度大；Graviton 比 x86 便宜 20% | Fargate 常驻（实验栈里再对比） |
 | **Cognito User Pool** | 考纲必考；托管登录页 + OIDC/PKCE 一次学透 | 自建 JWT 认证（学到的东西少） |
-| **CDK v2 (TS)** | 与前端同语言、类型安全；比 Terraform 更贴 AWS 考点 | Terraform（跨云好，但 DOP 考 CFN） |
+| **SAM / CloudFormation** | 部署即 CFN，和 SAA/DOP 考点完全重合；模板可读、可 diff | CDK（要多一层编译）、Terraform（DOP 考 CFN） |
 | **CodePipeline + CodeBuild** | DOP 的 SDLC 域核心 | GitHub Actions（更顺手，但没有 Code* 服务练习） |
 
 ### 4.3 为什么不用 AppSync / Amplify / ECS（在主链路里）
@@ -427,17 +427,21 @@ React 19 + TypeScript + Vite + React Router + TanStack Query + Tailwind CSS + Zu
 1. **AWS Budgets**：`CertStack` 月度预算 $5，50% / 80% / 100% 三档邮件告警。
 2. **Cost Anomaly Detection**：免费，按服务维度检测异常。
 3. **标签**：所有资源 `Project=CertStack`、`Env=dev|prod`、`Owner=li`，Cost Explorer 按标签筛选。
-4. **架构约束**：核心栈不允许出现 ALB / NAT / Aurora / OpenSearch；CDK 里用 `Nag` 或自定义
+4. **架构约束**：核心栈不允许出现 ALB / NAT / Aurora / OpenSearch；模板里用 cfn-lint 或自定义
    aspect 做「禁用资源清单」检查，synth 阶段就报错。
 5. **一键销毁 + 备份**：
-   - `npm run down`：先 `export-state` 把 DynamoDB 全表导出到 `var/backups/<ts>.json.gz`，
-     再 `cdk destroy --all`。
-   - `npm run up`：`cdk deploy --all` + `import-state` 恢复。
+   - `npm run down`：先备份 DynamoDB 到 `var/backups/<ts>.json.gz`，再删除 CloudFormation 栈。
+   - `bash scripts/deploy.sh`：重建 + 恢复数据。
    - 实验栈单独 `npm run lab:up` / `npm run lab:down`。
 
 ---
 
 ## 10. 交付路线图
+
+**应用与部署分离**：`app/` 只认环境变量和构建产物，`devops/` 描述 AWS 资源。
+M1 的部署不是一次完成，而是按 `devops/step-0N-*.sh` 逐步长出来（见 [DEPLOY-STEPS.md](DEPLOY-STEPS.md)）：
+静态站点 → 内容分发 → API → 数据 → 用户 → 可观测性 → CI/CD。
+这样每一步只引入一个新的失败面，也便于换掉 IaC 工具而不碰应用代码。
 
 每个里程碑都以「能部署、能验收、能讲清原理」为准，不追求一次做完。
 M1 的具体实验步骤见 [LABS.md](LABS.md)。
@@ -445,25 +449,24 @@ M1 的具体实验步骤见 [LABS.md](LABS.md)。
 ### M0 仓库与内容管道（已完成）
 
 - 仓库骨架、`data/export_content.py`、内容包生成与校验、规划文档
-- 额外完成：CDK 应用骨架 + `DataStack`（DynamoDB 单表与两个 GSI、两个私有 S3 桶）+ 4 个断言测试
+- 额外完成：内容包导出脚本与校验（SAM 模板与 Python Lambda 由归档实现提供参考）
 - **验收**：`python3 data/export_content.py` 输出 2381 题、0 校验错误；`npm test` 4/4 通过；`npm run synth` 本地合成成功
 - 成本：$0（未上云）
 
-### M1 核心闭环（由你实现，见 docs/LABS.md）
+### M1 核心闭环（已实现，SAM + Python；部署由你执行，见 docs/LABS.md）
 
-- CDK：**单栈 `CertStack-dev`** + 四个 construct（Data / Auth / Api / Web）
-  —— 拆栈会因 CloudFront OAC 桶策略回写形成 `Data → Web → Data` 循环依赖，单栈更适合单人项目
+- SAM：**单栈 `CertStack-dev`**（template.yaml 描述全部资源）
 - Lambda：`me`、`sessions`、`answers`、`finish`、`health`（TypeScript + Powertools）
 - 前端：登录、练习模式、首页统计、内容缓存
 - 运维：Budget 告警、CloudWatch 告警、`up/down/backup` 脚本
 - **验收**：
-  1. `cdk deploy` 成功，拿到 CloudFront 域名；
+  1. `sam deploy` 成功，拿到 CloudFront 域名；
   2. 用 Cognito 管理员创建的账号登录；
   3. 完成 10 道练习，刷新后统计仍在；
   4. `npm run down` 后资源全清，`npm run up` 能恢复；
   5. 当月账单新增 < $1。
 - 学到：CloudFront + OAC、Cognito 授权码流、JWT 授权器、Lambda 冷启动、
-  DynamoDB 单表 + 稀疏 GSI、条件写、IAM 最小权限、CDK 跨栈引用。
+  DynamoDB 单表 + 稀疏 GSI、条件写、IAM 最小权限、CloudFormation 变更集。
 
 ### M2 模考、复习与可观测性
 
@@ -485,7 +488,7 @@ M1 的具体实验步骤见 [LABS.md](LABS.md)。
 ### M4 CI/CD 与多环境
 
 - GitHub → CodeStar Connection → CodePipeline（Source / Build / Deploy dev / 审批 / Deploy prod）
-- CodeBuild 跑单测 + `cdk synth` + `cdk deploy`；构建缓存；产物走 S3
+- CodeBuild 跑 `sam build` + `sam deploy`；构建缓存；产物走 S3
 - Lambda 金丝雀（CodeDeploy，10% → 5 分钟 → 100%）
 - **验收**：推一个 PR 触发流水线；故意让测试失败能阻断部署；金丝雀阶段能回滚。
 - 学到：DOP 的 SDLC 自动化、部署策略、制品与版本、环境隔离。

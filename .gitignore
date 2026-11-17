@@ -4,6 +4,11 @@ dist/
 data/dist/
 var/
 cdk.out/
+.aws-sam/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
 *.log
 .env
 .env.*
@@ -11,8 +16,9 @@ cdk.out/
 .DS_Store
 coverage/
 *.tsbuildinfo
-web/public/config.dev.json
+app/web/public/config.dev.json
 solution/
 aws-quiz.db
 SQLITE_SCHEMA.md
 SQLITE.md
+app/web/public/content/

@@ -1,269 +1,235 @@
-# 重建 M1：实验课表
+# M1 部署与观察手册
 
-M1（登录 → 取题 → 作答 → 统计）已经在 AWS 上跑通过一次，现在**拆掉重来，由你亲手搭**。
-课表按 1–1.5 小时一格设计，每格结束都有可验收的产物。
+M1 的代码已经写好（SAM 模板 + Python Lambda + React 前端）。这一份手册只关心 **AWS 侧**：
+怎么部署、部署后看什么、为什么这样选、怎么破坏再修好。
 
-## 合作方式
+节奏建议：一次一节，30–45 分钟。每节结束，用自己的话回答末尾的问题；
+答不上来的，就是下一节要补的。
 
-- 命令你敲，代码你写；我只给目标、约束、验收标准和 review。
-- 每格开始前先回答「先回答」里的问题（写下来，不用发给我也行）。
-- 卡住超过 20 分钟再问。提问时贴：命令、报错全文、你的假设。
-- 我不运行 `cdk deploy`，也不替你改代码。需要我改时，你明确说「你来改」。
-- 每格结束后，按下面的模板发我一段，我来挑毛病。
+---
 
-## 每格提交模板
+## 0. 部署一次（30–45 分钟）
 
-```
-1. 我做了什么（3 行以内）
-2. 关键输出（cdk diff / synth 摘要、curl 状态码）
-3. 我对「先回答」的答案（一条一行）
-4. 我卡住的点 / 我还不确定的点
+```bash
+bash scripts/setup.sh      # 一次性：Python venv + SAM CLI + 前端依赖
+bash scripts/deploy.sh
 ```
 
-## 进度
+`deploy.sh` 做了 5 件事，逐段看终端输出：
 
-| Lab | 内容 | 预计 | 状态 |
-| --- | --- | --- | --- |
-| 0 | 拆掉现有栈，看清删除顺序 | 30 min | ☐ |
-| 1 | 私有 S3 + CloudFront + 自动部署 | 1.5 h | ☐ |
-| 2 | 内容管道：SQLite → JSON → S3，版本化与缓存 | 1.5 h | ☐ |
-| 3 | Cognito 用户池与 SRP 登录 | 1.5 h | ☐ |
-| 4 | DynamoDB 单表建模（先手工，再 CDK） | 1.5 h | ☐ |
-| 5 | HTTP API + Lambda + JWT 授权器 | 1.5 h | ☐ |
-| 6 | 练习闭环：会话 / 作答 / 幂等 / 判分 | 1.5 h | ☐ |
-| 7 | 统计与间隔复习：GSI 查询与聚合 | 1.5 h | ☐ |
-| 8 | 成本护栏与可重建性 | 45 min | ☐ |
+| 步骤 | 命令 | 发生了什么 |
+| --- | --- | --- |
+| 1 | `python3 data/export_content.py` | SQLite 题库 → `data/dist/content` 静态包 |
+| 2 | `sam build` | 把 Python 代码和 layer 复制到 `.aws-sam/build` |
+| 3 | `sam deploy` | 上传构建产物到 S3 → 生成 CloudFormation **changeset** → 你确认 → 执行 |
+| 4 | `npm --prefix web run build` | 前端打包，并写入 `config.json`（池 ID、API 地址） |
+| 5 | `aws s3 sync` + `create-invalidation` | 上传前端/内容，刷新 CloudFront 缓存 |
 
----
+**在控制台看什么**
 
-## Lab 0：拆掉现状
+1. CloudFormation → `CertStack-dev` → **Events**：注意资源创建顺序（S3 → Cognito/DynamoDB → API → CloudFront → BucketPolicy）。
+2. 同一页 → **Resources**：数一下有多少资源，认出哪些是 Lambda、哪些是 CloudFront。
+3. **Outputs**：`AppUrl`、`UserPoolId`、`ApiEndpoint`。
 
-**目标**：不是「点删除」，而是看懂 CloudFormation 删除时的依赖顺序。
+**回答**
 
-**你要做的**
-
-1. 先在控制台打开 CloudFormation → `CertStack-dev` → 资源列表，记录你认识 / 不认识的资源类型。
-2. 执行删除，然后**盯着事件流**直到结束：
-
-   ```bash
-   aws cloudformation delete-stack --stack-name CertStack-dev --region ap-northeast-1
-   aws cloudformation wait stack-delete-complete --stack-name CertStack-dev --region ap-northeast-1
-   ```
-
-3. 删除期间去 CloudFront 控制台看 Distribution 的状态（`Disabling` → `Deleting`）。
-4. 结束后确认：
-
-   ```bash
-   aws cloudformation list-stacks --region ap-northeast-1 \
-     --query 'StackSummaries[?StackStatus!=`DELETE_COMPLETE`].StackName' --output text
-   ```
-
-**先回答**
-
-1. 为什么 CloudFront 通常是最后一个删完的？
-2. S3 桶里有 15 MB 内容，为什么能直接删掉？（提示：看 `Custom::CDKBucketDeployment` 和桶的 `autoDeleteObjects`）
-3. 如果桶里有一份你不想丢的数据，应该改哪个参数？
-4. 删除之后，CloudFront 的域名还能访问吗？为什么？
+1. `sam build` 和 `sam deploy` 分别在哪一步用到 S3？为什么 Lambda 代码必须先上传 S3？
+2. changeset 里的 `Add` 列表，哪几个资源创建最慢？为什么？
+3. 为什么 BucketPolicy 出现在 CloudFront 之后？（提示：策略里引用了什么）
+4. 如果 `sam deploy` 中途失败，CloudFormation 会怎么处理已经创建的资源？
 
 ---
 
-## Lab 1：私有 S3 + CloudFront + 自动部署
+## 1. 资源巡览：每个东西为什么在这（30 分钟）
 
-**目标**：一个「桶私有、只能通过 CDN 访问、路由能回退到 index.html」的静态站，改完代码一条命令上线。
+按这个顺序点一遍控制台，每到一个服务，先猜「它为什么需要」，再看模板里对应的代码。
 
-**你会学到**：OAC（取代 OAI）、CloudFront 缓存与失效、SPA 路由回退、BucketDeployment。
+| 控制台 | 看什么 | 对应模板 |
+| --- | --- | --- |
+| CloudFront → Distribution | Origins（3 个）、Behaviors（5 条）、OAC | `Distribution` |
+| S3 → 两个桶 | 都是私有、版本化；桶策略只允许 CloudFront | `WebBucket` / `ContentBucket` |
+| Cognito → 用户池 → App client | 自助注册关闭、SRP、无 secret | `UserPool` / `UserPoolClient` |
+| API Gateway → APIs | 路由列表、JWT 授权器、默认授权 | `HttpApi` |
+| Lambda → 4 个函数 | 运行时、架构、环境变量、执行角色 | `*Function` |
+| DynamoDB → 表 | PK/SK、两个 GSI、预置容量 | `Table` |
 
-**产出**
+**回答**
 
-- `web/`：Vite + React + TS 的最小站点（两个路由：`/` 与 `/practice`）
-- `infra/lib/static-site.ts`：一个 Stack
-- `cdk deploy` 后拿到 CloudFront 域名
-
-**验收**
-
-| 检查 | 期望 |
-| --- | --- |
-| `curl -sI https://<domain>/` | 200，且带 `strict-transport-security` |
-| 直接访问 `https://<bucket>.s3.ap-northeast-1.amazonaws.com/index.html` | **403** |
-| `curl -s https://<domain>/practice` | 返回 index.html（不是 403/404） |
-| 改一句文案重新部署 | 1 分钟内能看到 |
-| 控制台看 Distribution | 有一个 OAC 关联到桶 |
-
-**先回答**（Lab 1 结束前写下答案）
-
-1. 为什么不用 S3 静态网站托管端点？
-2. OAC 和 OAI 的区别是什么？请求是谁签名的？
-3. `index.html` 默认会被 CloudFront 缓存多久？改文案后看不到更新，可能是什么原因？
-4. `BucketDeployment` 的 `distribution` / `distributionPaths` 参数各自做了什么？
-5. 如果明天要接自定义域名，需要在哪些 Region 准备什么？
-
-详细步骤见 [LAB-01.md](LAB-01.md)。
+1. 这三个 S3 桶策略里，`AWS:SourceArn` 条件防住了什么攻击？
+2. 为什么 Lambda 的环境变量里要放 `CONTENT_BUCKET`，而不是把题目塞进数据库？
+3. API Gateway 的 JWT 授权器校验失败时，请求会到达 Lambda 吗？
+4. DynamoDB 的 5 RCU/5 WCU 为什么仍然在免费额度内？两个 GSI 各占多少？
 
 ---
 
-## Lab 2：内容管道
+## 2. 分发与缓存（45 分钟）
 
-**目标**：把 SQLite 题库变成浏览器能直接消费的静态内容，并且「换版本不影响旧缓存」。
+```bash
+D=$(aws cloudformation describe-stacks --stack-name CertStack-dev --region ap-northeast-1 \
+  --query "Stacks[0].Outputs[?OutputKey=='DistributionDomain'].OutputValue" --output text)
+B=$(aws cloudformation describe-stacks --stack-name CertStack-dev --region ap-northeast-1 \
+  --query "Stacks[0].Outputs[?OutputKey=='WebBucketName'].OutputValue" --output text)
 
-**你会学到**：S3 对象键设计、不可变资源 + 长缓存、路径级缓存策略、客户端缓存。
+curl -sI "https://$D/" | grep -iE 'x-cache|age|cache-control|strict-transport'
+curl -sI "https://$D/practice" | head -3
+curl -s -o /dev/null -w '%{http_code}\n' "https://$B.s3.ap-northeast-1.amazonaws.com/index.html"
+curl -sI "https://$D/content/index.json" | grep -i cache
+curl -sI "https://$D/content/SAA-C03/<hash>/questions.json" | grep -i cache
+```
 
-**产出**
+**实验 A：不刷新缓存会怎样**
 
-- 内容包上传到 S3（`content/<exam>/<hash>/questions.json`）
-- 前端能列出三门考试、按考试加载题目
-- `/content/index.json` 与 `/content/<exam>/<hash>/*` 使用**不同**的缓存策略
+1. 记下首页 `x-cache`（第一次多半是 `Miss from cloudfront`），再请求一次变成 `Hit`。
+2. 不改任何文件，等 5 分钟后看 `age` 是否增长。
+3. 手动失效：`aws cloudfront create-invalidation --distribution-id <ID> --paths '/*'`，再请求一次。
 
-**验收**
+**实验 B：OAC 到底做了什么**
 
-- 同一 URL 第二次加载不再走网络（DevTools → Network / 或 IndexedDB 里能看到缓存）
-- 重新生成内容后，`index.json` 立即变，旧 hash 的 URL 仍返回旧内容（验证不可变性）
-- CloudFront 上 `/content/index.json` 的 TTL 明显短于题目文件
+```bash
+aws s3api get-bucket-policy --bucket "$B" --query Policy --output text | python3 -m json.tool
+```
 
-**先回答**
+把策略里的 `AWS:SourceArn` 条件临时删掉（在控制台改），再访问 CloudFront，观察是否仍然 200；
+然后访问 `https://$B.s3.../index.html` 是否变成了 200。改完记得用 `bash scripts/deploy.sh` 恢复。
 
-1. 为什么把 hash 放进路径，而不是用 `?v=` 查询参数？
-2. 如果题目文件被缓存 1 年，你改了内容怎么让用户看到？
-3. 内容包要不要鉴权？为什么？
+**回答**
 
----
-
-## Lab 3：Cognito 与登录
-
-**目标**：关闭自助注册，管理员建号，前端用 SRP 登录并拿到 ID Token。
-
-**你会学到**：用户池 / 应用客户端 / 令牌（ID vs Access vs Refresh）、SRP 流程、令牌有效期。
-
-**验收**
-
-- 未登录时调 API 得到 401（Lab 5 之后）
-- 登录成功后能打印出 ID Token 的 payload，并指出 `sub`、`aud`、`exp` 各是什么
-- 用错密码得到明确的失败原因（且不泄露用户是否存在）
-- 控制台里能看到该用户，且自助注册是关闭的
-
-**先回答**
-
-1. ID Token 和 Access Token 分别给谁用？这里为什么用 ID Token？
-2. SPA 为什么不能有 client secret？
-3. SRP 相比「用户名密码直接 POST」多解决了什么问题？
-4. token 过期后前端应该怎么做？
+1. `index.html` 默认缓存多久？`/content/index.json` 为什么单独禁用缓存？
+2. 题目文件为什么可以缓存一年？内容更新时旧文件怎么办？
+3. OAC 和「把桶设为 public」相比，安全边界差在哪？
+4. CloudFront 的 403/404 被映射成 `/index.html`，这对单页应用意味着什么？代价是什么？
 
 ---
 
-## Lab 4：DynamoDB 单表
+## 3. 认证链路（30 分钟）
 
-**目标**：先不写代码，在控制台建表、手工塞一条 `PROFILE`，把访问模式想清楚；再用 CDK 固化。
+```bash
+POOL=$(aws cloudformation describe-stacks --stack-name CertStack-dev --region ap-northeast-1 \
+  --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text)
+CLIENT=$(aws cloudformation describe-stacks --stack-name CertStack-dev --region ap-northeast-1 \
+  --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text)
 
-**你会学到**：PK/SK 设计、稀疏 GSI、Query vs Scan、容量模式与免费额度、条件写。
+bash scripts/create-user.sh li
+bash scripts/smoke-test.sh li '<密码>'
+```
 
-**验收**
+**实验：把 ADMIN_USER_PASSWORD_AUTH 关掉**
 
-- 表结构能支持这 4 个查询（每个都是一次 Query，不是 Scan）：
-  1. 我的资料
-  2. 我最近 20 次练习
-  3. 某次练习的全部作答
-  4. 今天该复习的题
-- 重复写同一个「作答」不会产生两条记录
-- 能在控制台解释：为什么预置 5 RCU/5 WCU 仍在免费额度内
+控制台 → Cognito → 用户池 → App client → Authentication flows → 取消勾选 `ALLOW_ADMIN_USER_PASSWORD_AUTH`，
+保存后立刻重跑 `smoke-test.sh`，记下报错。然后加回来。
 
-**先回答**
+**回答**
 
-1. 为什么题目内容不放进这张表？
-2. 「今天该复习」为什么用 GSI 而不是 FilterExpression？
-3. 单表设计里，什么情况下才需要第二个 GSI？
-4. 一次交卷要更新会话 + 用户累计 + 标签统计，用事务还是分开写？各有什么代价？
-
----
-
-## Lab 5：HTTP API + Lambda
-
-**目标**：`GET /api/me` 打通「CloudFront → HTTP API → JWT 授权器 → Lambda → DynamoDB」。
-
-**你会学到**：HTTP API 与 REST API 的差异、JWT 授权器、Lambda 执行角色、冷启动、结构化日志。
-
-**验收**
-
-- 无 token：401；带 token：200 且返回你的资料
-- CloudWatch 日志里能看到 `requestId`，并能用它把一次请求串起来
-- Lambda 的执行角色权限只有这张表的读写，没有 `*`
-
-**先回答**
-
-1. HTTP API 比 REST API 便宜多少？少了哪些能力？
-2. 授权器在 API Gateway 侧校验，Lambda 里还要不要校验 `sub`？
-3. Lambda 冷启动时，哪些初始化应该放在 handler 外面？
-4. 为什么这个场景不需要 VPC？
+1. 浏览器登录用的是 SRP，`smoke-test.sh` 用的是 ADMIN_USER_PASSWORD_AUTH，两者差别是什么？
+2. 冒烟脚本里的 ID Token 被 API Gateway 校验了哪些字段？（看授权器的 JWT 配置）
+3. 为什么 SPA 的 App client 不能有 secret？
+4. ID Token 和 Access Token，哪个适合给 API 用？为什么？
 
 ---
 
-## Lab 6：练习闭环
+## 4. 数据层（45 分钟）
 
-**目标**：建会话 → 逐题作答（幂等）→ 交卷判分。
+控制台 → DynamoDB → `certstack-dev` → Explore items / PartiQL。
 
-**你会学到**：条件写、幂等键、DynamoDB 保留字、批量写与一致性的取舍。
+先跑一组练习制造数据，然后：
 
-**验收**
+```bash
+# 看某个用户的所有条目
+aws dynamodb query --table-name certstack-dev --region ap-northeast-1 \
+  --key-condition-expression "PK = :pk" \
+  --expression-attribute-values '{":pk":{"S":"USER#<sub>"}}' \
+  --query 'Items[].{sk:SK.S,entity:entity.S}' --output table
 
-- 同一题提交两次，只计一次
-- 交卷分数 = `100 + 正确率 × 900`，与你手算一致
-- 交卷接口重复调用不会重复累加
-- 练习模式即时返回对错；模考模式不回显
+# 看 GSI1（到期队列）
+aws dynamodb query --table-name certstack-dev --region ap-northeast-1 \
+  --index-name gsi1 \
+  --key-condition-expression "gsi1pk = :pk" \
+  --expression-attribute-values '{":pk":{"S":"USER#<sub>#SRS"}}' --output table
+```
 
-**先回答**
+**实验 A：手工改容量**
 
-1. 幂等靠什么保证？如果客户端超时重试，服务端怎么识别？
-2. 为什么「作答」放 `USER#<sub>#SESSION#<id>` 而不是 `USER#<sub>`？
-3. 哪些字段名在 DynamoDB 表达式里必须加别名？
+控制台把表改成 On-demand，再改回 Provisioned 5/5。然后用 `bash scripts/deploy.sh` 看 CloudFormation 是否把
+你的手工修改"纠正"回来（这就是 drift）。
 
----
+**实验 B：哪一步是条件写**
 
-## Lab 7：统计与间隔复习
+在 `sessions` Lambda 里打断点不现实，改看代码：`lambda/sessions/app.py` 搜 `ConditionExpression`。
+重复提交同一题，观察统计是否翻倍（不应该）。
 
-**目标**：标签正确率、近 30 天趋势、今日到期队列。
+**回答**
 
-**你会学到**：稀疏索引、按日期排序键、计数查询、最终一致性。
-
-**验收**
-
-- 答错一题，10 分钟后出现在 `/api/srs/due`
-- 标签正确率与手工统计一致
-- 控制台里能看到 GSI 上的条目数是普通条目的一部分（稀疏）
-
-**先回答**
-
-1. 稀疏 GSI 省了什么？
-2. GSI 是强一致还是最终一致？这会影响「今日待复习」吗？
-3. 如果用户量到 10 万，哪些查询会变贵？
+1. 为什么「作答」放在 `USER#<sub>#SESSION#<id>` 下，而不是都塞进 `USER#<sub>`？
+2. 「今天该复习」为什么用 GSI，而不是 `Scan` + `FilterExpression`？
+3. 一次交卷会更新几个条目？如果中间失败，会出现什么不一致？
+4. 单表设计里，什么情况下才值得加第二个 GSI？
 
 ---
 
-## Lab 8：成本护栏与可重建性
+## 5. 故障、漂移与回滚（45 分钟）
 
-**目标**：把「删掉再建」变成一条命令，并且账单可解释。
+**看日志**
 
-**你会学到**：Budgets、成本标签、CloudFormation 删除策略、备份与恢复。
+```bash
+aws logs tail /aws/lambda/certstack-dev-sessions --follow --region ap-northeast-1
+```
 
-**验收**
+**实验 A：手工改坏环境变量**
 
-- `npm run down`：先备份 DynamoDB，再销毁全部资源
-- 重建后 15 分钟内恢复到可用状态
-- Cost Explorer 按 `Project=CertStack` 标签能筛出全部花费
-- 有一张自己的「什么资源按月计费」清单
+```bash
+aws lambda update-function-configuration --function-name certstack-dev-sessions \
+  --environment "Variables={TABLE_NAME=wrong-table}" --region ap-northeast-1
+```
 
-**先回答**
+再调用一次 API（浏览器或 smoke），看 500 与日志里的 `ResourceNotFoundException`。
+然后 `bash scripts/deploy.sh`，CloudFormation 会把变量改回来——手工修改 vs IaC。
 
-1. 这套架构里，哪些资源即使没人用也按月收钱？
-2. 如果忘了删实验资源，最可能烧钱的是哪三个？
-3. CloudFormation 的 `RETAIN` 和 `SNAPSHOT` 分别适合什么数据？
+**实验 B：观察一次失败的部署**
+
+把 `template.yaml` 里 `HealthFunction` 的 `MemorySize` 改成 `99`（低于最小值），`sam deploy`，
+看 changeset 失败、栈回滚、旧资源是否保留。改回 128 再部署。
+
+**回答**
+
+1. Lambda 的 500 和 API Gateway 的 5xx，在 CloudWatch 里分别看哪个指标？
+2. 为什么手工改 Lambda 环境变量后，下一次 `sam deploy` 会覆盖它？
+3. 部署失败回滚时，已经更新成功的资源会怎样？
+4. 想快速定位一次慢请求，应该看日志、指标还是 X-Ray？为什么？
 
 ---
 
-## 卡住了怎么办
+## 6. 成本与销毁（30 分钟）
 
-按顺序，每次只升一级：
+1. Cost Explorer 按 `Project=CertStack` 过滤（标签数据有延迟，第二天再看）。
+2. 估算：CloudFront 出网、Lambda 调用、DynamoDB 读写各花了多少？哪个是 0？
+3. 在 Billing → Budgets 建一个 $5 月度预算（需要邮箱）。
+4. 销毁：
 
-1. **概念提示**：我告诉你该查哪个服务的哪个文档章节。
-2. **结构提示**：我给伪代码或 API 名称，不给完整实现。
-3. **对照**：打开 `solution/m1/` 的对应文件，只看 10 行，然后关掉自己写。
+```bash
+bash scripts/down.sh
+aws cloudformation list-stacks --region ap-northeast-1 \
+  --query 'StackSummaries[?StackStatus!=`DELETE_COMPLETE`].StackName' --output text
+```
 
-`solution/m1/` 是这次已部署实现的归档（已加入 `.gitignore`）。尽量别提前看——
-你现在的目标不是「让代码跑起来」，是「能解释为什么它能跑起来」。
+**回答**
+
+1. 删栈之后，还有哪些东西在收钱（或不收钱）？SAM 的产物桶、CloudWatch 日志、CDKToolkit 分别怎么处理？
+2. 如果忘了删，哪三个资源最可能持续产生费用？
+3. `down.sh` 先备份再删，备份的是什么格式？怎么恢复？
+
+---
+
+## 7. 下一步：CI/CD（M4）
+
+现在部署是「本地跑脚本」。下一步要把它变成：
+
+```
+GitHub push → CodePipeline → CodeBuild（sam build + 单测）→ 部署 dev → 人工审批 → 部署 prod
+```
+
+在 M4 之前，先能回答：
+
+1. CodeBuild 里跑 `sam deploy` 需要什么权限？和本地跑有什么不同？
+2. 为什么流水线里的构建产物要放 S3，而不是每次重新打包？
+3. dev 和 prod 两个栈如何隔离？（栈名、参数、IAM）
+4. 回滚应该由谁触发——人还是流水线？CloudFormation 的回滚和代码回滚有什么不同？
