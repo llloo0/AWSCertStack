@@ -39,6 +39,16 @@ Resources:
         - { Key: Env, Value: !Ref Env }
         - { Key: Stage, Value: !Ref Stage }
 
+  WebOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub certstack-${Env}-web-oac
+        Description: OAC for the CertStack web bucket
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
   Distribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -53,6 +63,7 @@ Resources:
         Origins:
           - Id: web
             DomainName: !GetAtt WebBucket.RegionalDomainName
+            OriginAccessControlId: !Ref WebOAC
             S3OriginConfig:
               OriginAccessIdentity: ''
 
@@ -67,6 +78,23 @@ Resources:
           CachedMethods:
             - GET
             - HEAD
+
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontOAC
+            Effect: Allow
+            Principal: 
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub arn:${AWS::Partition}:s3:::${WebBucket}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}
 
 Outputs:
   WebBucketName:

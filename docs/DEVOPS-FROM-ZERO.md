@@ -160,7 +160,7 @@ curl -sI "https://$D/"
 
 ---
 
-### Increment 3：OAC + 桶策略（修好 403）
+### Increment 3：OAC + 桶策略（修好 403）（已完成）
 
 **解决什么**：让 CloudFront 以「服务身份」读私有桶，而不是把桶公开。
 
@@ -191,6 +191,8 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 1. OAC 和 OAI 的区别？
 2. `AWS:SourceArn` 条件防的是哪种攻击？
 3. 桶策略里为什么用 distribution 的 ARN，而不是域名？
+
+**回答记录**：[DEVOPS-ANSWERS.md](DEVOPS-ANSWERS.md)
 
 ---
 
