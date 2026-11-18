@@ -41,11 +41,11 @@
 
 ## Step 01 的七个 Increment
 
-模板在 `devops/sam/steps/01-static-web/template.yaml`。现在是空的，从 Increment 0 开始。
+模板在 `devops/sam/steps/01-static-web/template.yaml`。Increment 0 已完成，答案记录在 [DEVOPS-ANSWERS.md](DEVOPS-ANSWERS.md)。
 
 ---
 
-### Increment 0：一个桶
+### Increment 0：一个桶（已完成）
 
 **解决什么**：让 CloudFormation 里出现第一个属于你的资源。
 
@@ -78,6 +78,8 @@ aws s3api head-bucket --bucket <输出的桶名>
 1. 栈和资源是什么关系？删栈时桶会怎样？
 2. `Outputs` 除了给人看，还有什么用？
 3. `deploy` 怎么判断这次是创建还是更新？
+
+**回答记录**：[DEVOPS-ANSWERS.md](DEVOPS-ANSWERS.md)
 
 ---
 

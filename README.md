@@ -15,7 +15,7 @@ docs/     规划与部署路线
 | --- | --- |
 | Web 应用（`app/web`） | 已完成，本地 mock 模式可跑，视觉已确认 |
 | Lambda（`app/lambda`） | 代码已写，尚未接入部署 |
-| 部署（`devops/`） | **从零开始**：只有一个还不能部署的模板骨架 |
+| 部署（`devops/`） | **从零开始**：Increment 0（S3 桶）已完成，正在做 Increment 1 |
 | 参考实现 | 归档在 `solution/reference/`，先别看 |
 
 ## 从零开始部署
@@ -23,7 +23,7 @@ docs/     规划与部署路线
 部署不是一条命令的事，是按 `docs/DEVOPS-FROM-ZERO.md` 一次加一个资源长出来的：
 
 1. 读 [docs/DEVOPS-FROM-ZERO.md](docs/DEVOPS-FROM-ZERO.md) 的 Increment 0
-2. 在 `devops/sam/steps/01-static-web/template.yaml` 里写第一个 S3 桶
+2. `devops/sam/steps/01-static-web/template.yaml` 里已经有第一个 S3 桶
 3. 部署、验收、提交，再进入 Increment 1
 
 Increment 0 的部署命令：

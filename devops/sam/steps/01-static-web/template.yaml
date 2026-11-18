@@ -16,8 +16,31 @@ Parameters:
       - prod
 
 Resources:
-  # Increment 0：
-  # WebBucket:
-  #   Type: AWS::S3::Bucket
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: abort-incomplete-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - { Key: Project, Value: CertStack }
+        - { Key: Env, Value: !Ref Env }
 
-Outputs: {}
+
+Outputs:
+  WebBucketName:
+    Value: !Ref WebBucket
