@@ -1,12 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: CertStack step 01 - static site (S3 + CloudFront)
 
-# 这是 Step 01 的起点，不是成品。
-# 按 docs/DEVOPS-FROM-ZERO.md 的 Increment 0 开始，一次只加一个资源。
-#
-# 现在这个模板还不能部署：Resources 是空的。
-# 先把 WebBucket 写进来，跑一次 deploy，拿到桶名，再进入 Increment 1。
-
 Parameters:
   Env:
     Type: String
@@ -45,7 +39,39 @@ Resources:
         - { Key: Env, Value: !Ref Env }
         - { Key: Stage, Value: !Ref Stage }
 
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub certstack-${Env}-${Stage}
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_200
+
+        Origins:
+          - Id: web
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+
+        DefaultCacheBehavior:
+          TargetOriginId: web
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # CachingOptimized
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
 
 Outputs:
   WebBucketName:
     Value: !Ref WebBucket
+  DistributionDomain:
+    Value: !GetAtt Distribution.DomainName
+  DistributionId:
+    Value: !Ref Distribution

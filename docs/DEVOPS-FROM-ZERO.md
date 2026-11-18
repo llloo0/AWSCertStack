@@ -111,15 +111,17 @@ aws s3api get-bucket-encryption --bucket <桶名>
 
 ---
 
-### Increment 2：加 CloudFront（这次会 403）
+### Increment 2：加 CloudFront（已完成，403 已验证）
 
 **解决什么**：需要 HTTPS、CDN 和单页应用的路由回退。
 
 **需要新增**
 
 - `AWS::CloudFront::Distribution`
-- `Origins`：指向桶的 Regional Domain Name
-- `DefaultCacheBehavior`：`TargetOriginId`、`ViewerProtocolPolicy: redirect-to-https`
+- `Origins`：指向桶的 Regional Domain Name，并且必须声明 origin 类型：
+  S3 源要写 `S3OriginConfig: { OriginAccessIdentity: '' }`（先占位，OAC 在下一步加）
+- `DefaultCacheBehavior`：`TargetOriginId`、`ViewerProtocolPolicy: redirect-to-https`，
+  还要指定缓存策略：`CachePolicyId`（托管的 CachingOptimized）或旧式的 `ForwardedValues`，二选一
 - `DefaultRootObject: index.html`
 - `PriceClass`（东京用 `PriceClass_200`）
 
@@ -147,7 +149,9 @@ D=$(aws cloudformation describe-stacks --stack-name CertStack-dev --region ap-no
 curl -sI "https://$D/"
 ```
 
-**这里会失败**：CloudFront 返回 403，即使 `index.html` 确实在桶里。想清楚为什么，再进下一步。
+**这里会失败**：CloudFront 返回 403，即使 `index.html` 确实在桶里。看响应头：
+`server: AmazonS3` 说明是 S3 拒绝了请求，`x-cache: Error from cloudfront` 说明 CloudFront 只是把 S3 的错误转回来。
+想清楚为什么，再进下一步。
 
 **回答**
 
@@ -168,6 +172,13 @@ curl -sI "https://$D/"
   Action `s3:GetObject`，Condition `AWS:SourceArn` 限定到你这个 distribution
 
 **验收**
+
+CloudFront 更新和 OAC 生效需要几分钟；而且上一步的 403 可能被 CloudFront 缓存，
+测之前先失效一次：
+
+```bash
+aws cloudfront create-invalidation --distribution-id <DistributionId> --paths '/*' --region ap-northeast-1
+```
 
 ```bash
 curl -sI "https://$D/" | head -5                                   # 200
