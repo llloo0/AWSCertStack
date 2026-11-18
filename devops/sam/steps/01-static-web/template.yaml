@@ -14,6 +14,10 @@ Parameters:
     AllowedValues:
       - dev
       - prod
+  Stage:
+    Type: String
+    Default: 01-static-web
+    Description: Deployment stage, written into the frontend config
 
 Resources:
   WebBucket:
@@ -24,10 +28,10 @@ Resources:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
       PublicAccessBlockConfiguration:
-          BlockPublicAcls: true
-          BlockPublicPolicy: true
-          IgnorePublicAcls: true
-          RestrictPublicBuckets: true
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
       VersioningConfiguration:
         Status: Enabled
       LifecycleConfiguration:
@@ -39,6 +43,7 @@ Resources:
       Tags:
         - { Key: Project, Value: CertStack }
         - { Key: Env, Value: !Ref Env }
+        - { Key: Stage, Value: !Ref Stage }
 
 
 Outputs:

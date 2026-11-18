@@ -15,7 +15,7 @@ docs/     规划与部署路线
 | --- | --- |
 | Web 应用（`app/web`） | 已完成，本地 mock 模式可跑，视觉已确认 |
 | Lambda（`app/lambda`） | 代码已写，尚未接入部署 |
-| 部署（`devops/`） | **从零开始**：Increment 0（S3 桶）已完成，正在做 Increment 1 |
+| 部署（`devops/`） | **从零开始**：Increment 0–1 已完成（桶 + 安全属性），正在做 Increment 2（CloudFront） |
 | 参考实现 | 归档在 `solution/reference/`，先别看 |
 
 ## 从零开始部署

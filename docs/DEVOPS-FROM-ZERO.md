@@ -83,7 +83,7 @@ aws s3api head-bucket --bucket <输出的桶名>
 
 ---
 
-### Increment 1：把桶收紧
+### Increment 1：把桶收紧（已完成）
 
 **解决什么**：默认创建的桶不够安全，也不够可追溯。
 
@@ -107,6 +107,8 @@ aws s3api get-bucket-encryption --bucket <桶名>
 1. 四个 PublicAccessBlock 开关分别挡住什么？
 2. 开版本化之后，删除对象是真删吗？成本怎么算？
 
+**回答记录**：[DEVOPS-ANSWERS.md](DEVOPS-ANSWERS.md)
+
 ---
 
 ### Increment 2：加 CloudFront（这次会 403）
@@ -121,7 +123,21 @@ aws s3api get-bucket-encryption --bucket <桶名>
 - `DefaultRootObject: index.html`
 - `PriceClass`（东京用 `PriceClass_200`）
 
-**部署**：CloudFront 创建通常 5–8 分钟。
+**先放一个测试文件**
+
+部署 CloudFront 之前，先往桶里放一个 `index.html`。这样后面的 403 才能证明是「CloudFront 没权限」，
+而不是「文件不存在」：
+
+```bash
+echo '<h1>hello certstack</h1>' > /tmp/index.html
+aws s3 cp /tmp/index.html "s3://<桶名>/index.html" --region ap-northeast-1
+```
+
+**部署**：CloudFront 创建通常 5–8 分钟。等它的状态变成 `Deployed`：
+
+```bash
+aws cloudfront wait distribution-deployed --id <DistributionId> --region ap-northeast-1
+```
 
 **验收**
 
@@ -131,7 +147,7 @@ D=$(aws cloudformation describe-stacks --stack-name CertStack-dev --region ap-no
 curl -sI "https://$D/"
 ```
 
-**这里会失败**：CloudFront 返回 403。想清楚为什么，再进下一步。
+**这里会失败**：CloudFront 返回 403，即使 `index.html` 确实在桶里。想清楚为什么，再进下一步。
 
 **回答**
 

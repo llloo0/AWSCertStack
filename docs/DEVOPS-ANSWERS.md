@@ -2,6 +2,10 @@
 
 每一轮部署后，把问题和答案记在这里。答案保留原意，格式统一；我加的更正放在「评审」里。
 
+> **约定**：你只需要在对应问题下面写答案，不用管格式。我校验时统一整理成
+> 「我的回答 / 评审」两段：保留你的要点，把错误和补充放进评审。
+> 如果答案里有明显的概念错误，我不会直接改掉你的原话，而是在评审里指出。
+
 ---
 
 ## Increment 0 · 第一个桶
@@ -63,4 +67,46 @@ MyBucket:
 
 ## Increment 1 · 把桶收紧
 
-（完成部署后补答案）
+### Q1 四个 `PublicAccessBlock` 开关分别挡住什么？
+
+**我的回答**
+
+- `BlockPublicAcls`：拒绝为桶或对象设置公共 ACL（如 `public-read`）。
+- `IgnorePublicAcls`：忽略已经存在的公共 ACL，即使之前设置过也不生效。
+- `BlockPublicPolicy`：拒绝任何允许公共访问的桶策略（如 `Principal: "*"`）。
+- `RestrictPublicBuckets`：即使存在公共策略，也只允许本账号内的主体和 AWS 服务访问，挡住跨账号访问。
+- 四个组合起来相当于「四重锁」，是 AWS 推荐的默认配置。
+- 只有确实要公开访问时才需要关闭：静态网站托管要关 `BlockPublicPolicy` / `RestrictPublicBuckets`；
+  用对象 ACL 公开单个对象要关 `BlockPublicAcls` / `IgnorePublicAcls`（现在更推荐预签名 URL）。
+
+**评审**
+
+- 四个开关的职责都对。`RestrictPublicBuckets` 更准确的说法是：对「带公共策略的桶」，只允许
+  桶所有者账号内的 IAM 主体和 AWS 服务访问，阻止公共策略带来的跨账号访问。
+- 补充我们这条路线的前提：**这四个开关全程保持开启**。CloudFront 用 OAC 读私有桶，不需要公开桶；
+  OAC 的桶策略只授权给一个具体的 distribution，不属于「公共策略」，所以不会被 `BlockPublicPolicy` 拦。
+- 再补一层：Public Access Block 也可以设在**账号级别**，账号级设置会覆盖桶级。
+  排查「桶策略为什么存不进去」时，先看账号级有没有开。
+- 小校准：静态网站托管关的是 `BlockPublicPolicy` 和 `RestrictPublicBuckets`；
+  `BlockPublicAcls` / `IgnorePublicAcls` 可以保持开启（只要不用 ACL 授权）。
+
+### Q2 开版本化之后，删除对象是真删吗？成本怎么算？
+
+**我的回答**
+
+- 普通删除（不带版本 ID）不是真删，而是插入一个删除标记（Delete Marker）；
+  对象看起来 404，但历史版本都还在。
+- 指定版本 ID 删除才会永久移除那个版本，无法恢复；删掉删除标记可以让对象「复活」。
+- 成本按所有版本累计。例：第 1 天 4 GB、第 16 天同名 5 GB，月底约 4×31/31 + 5×16/31 ≈ 6.58 GB-月。
+- 不管理的话版本会无限增长，账单持续上升；用生命周期规则把非当前版本转到低成本存储类别，
+  或到期永久删除。
+
+**评审**
+
+- 结论都对，例子里的算法也对（按 31 天算）。
+- 补充：版本化有三种状态——未启用、`Enabled`、`Suspended`。开启后不能回到「未启用」，只能暂停。
+  暂停后新对象版本名为 `null`，此时不带版本 ID 的删除会真的删掉 `null` 版本。
+- 补充：生命周期里对应的是 `NoncurrentVersionExpiration` / `NoncurrentVersionTransition`；
+  删除标记可以用 `ExpiredObjectDeleteMarker: true` 顺带清理。
+- 补充：删除标记本身几乎不占存储，但每次删除都是一次 DELETE 请求，请求费照收。
+- 安全相关：可以开 MFA Delete，防止误删版本或关闭版本化（需要 root 凭证）。
