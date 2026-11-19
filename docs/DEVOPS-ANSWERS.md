@@ -318,3 +318,53 @@ MyBucket:
   加内联策略；也可以传 `Role` 用现有角色。
 - 查看方式：`aws lambda get-function-configuration` 看 `Role`，
   再用 `aws iam list-attached-role-policies` / `list-role-policies`。
+
+---
+
+## Step 02 · 02.2 暴露成 HTTP API
+
+### Q1 SAM 的 `HttpApi` 事件创建了哪些资源？
+
+**我的回答**
+
+- 从变更集看：`AWS::Lambda::Permission`、`AWS::ApiGatewayV2::Stage`、`AWS::ApiGatewayV2::Api`。
+
+**评审**
+
+- 对。具体是：
+  - `AWS::ApiGatewayV2::Api`：HTTP API。路由和 `AWS_PROXY` 集成写在它的 OpenAPI body 里，
+    所以栈里看不到单独的 Route / Integration 资源。
+  - `AWS::ApiGatewayV2::Stage`：`$default`，`AutoDeploy: true`。
+  - `AWS::Lambda::Permission`：允许 `apigateway.amazonaws.com` 调用函数，
+    `AWS:SourceArn` 精确到 `.../GET/api/health`。
+- Lambda 的执行角色是 02.1 创建的，不在这次变更里。
+
+### Q2 为什么 `curl` 直接打 `execute-api` 域名能通？它和 CloudFront 是什么关系？
+
+**我的回答**
+
+- `execute-api` 是 API Gateway 提供的公开 endpoint，目前还没接 CloudFront，两者没有关系。
+
+**评审**
+
+- 对。补充：
+  - `execute-api` 域名本身就是公网入口；CloudFront 以后只是加在它前面的一层，
+    负责同源、缓存策略、WAF。
+  - 接入 CloudFront 后，直接打 `execute-api` 仍然能通，除非另外用 WAF、资源策略
+    或共享密钥头限制它——这是后面要考虑的。
+  - 现在没有自定义域名，浏览器跨域访问会涉及 CORS；之后让 `/api/*` 走 CloudFront 同源就没有这个问题。
+
+### Q3 这个接口现在没有鉴权，下一步怎么加？
+
+**我的回答**
+
+- 可以用 Cognito 或者 Lambda token。
+
+**评审**
+
+- 方向对。三种常见方式：
+  - **Cognito JWT authorizer**：HTTP API 原生支持，校验 ID/Access Token，最贴合我们的方案（下一步用这个）。
+  - **Lambda authorizer**：自定义 token 校验，灵活，但要自己写逻辑和缓存。
+  - **IAM 授权（SigV4）**：适合服务间调用，不适合浏览器 SPA。
+- API key 只用于用量统计和限流，不是身份认证，不能当鉴权用。
+- 加 authorizer 后，路由默认拒绝匿名请求；健康检查可以保留 `Auth: NONE`。

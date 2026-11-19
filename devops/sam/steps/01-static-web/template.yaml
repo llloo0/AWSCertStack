@@ -124,6 +124,12 @@ Resources:
       RetentionPolicy: Delete
     Metadata:
       BuildMethod: python3.12
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub certstack-${Env}
+      Description: CertStack API
   
   HealthFunction:
     Type: AWS::Serverless::Function
@@ -137,6 +143,13 @@ Resources:
       Timeout: 10
       Layers:
         - !Ref CommonLayer
+      Events:
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/health
+            Method: GET
 
 Outputs:
   WebBucketName:
@@ -145,3 +158,5 @@ Outputs:
     Value: !GetAtt Distribution.DomainName
   DistributionId:
     Value: !Ref Distribution
+  ApiEndpoint:
+    Value: !GetAtt HttpApi.ApiEndpoint
