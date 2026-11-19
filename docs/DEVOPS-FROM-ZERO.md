@@ -196,7 +196,7 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 
 ---
 
-### Increment 4：缓存行为
+### Increment 4：缓存行为（已完成）
 
 **解决什么**：`config.json` 改了要立刻生效，题库文件却可以缓存很久。
 
@@ -210,17 +210,52 @@ curl -s -o /dev/null -w '%{http_code}\n' \
   - CachingDisabled：`4135ea2d-6df8-44a3-9df3-4b5a84be39ad`
   - CachingOptimized：`658327ea-f89d-4fab-a63d-7e88639e58f6`
 
+**先放几个测试对象**
+
+让三条行为都有东西可测（部署前、部署后上传都可以）：
+
+```bash
+echo '{"stage":"cache-test","v":1}' > /tmp/config.json
+aws s3 cp /tmp/config.json "s3://<桶名>/config.json" --region ap-northeast-1
+
+mkdir -p /tmp/content/SAA-C03/test
+echo '{"exams":{}}' > /tmp/content/index.json
+echo '{"q":1}' > /tmp/content/SAA-C03/test/questions.json
+aws s3 cp /tmp/content/index.json "s3://<桶名>/content/index.json" --region ap-northeast-1
+aws s3 cp /tmp/content/SAA-C03/test/questions.json "s3://<桶名>/content/SAA-C03/test/questions.json" --region ap-northeast-1
+```
+
+**部署后先失效一次**
+
+```bash
+aws cloudfront create-invalidation --distribution-id <DistributionId> --paths '/*' --region ap-northeast-1
+```
+
 **验收**
 
 ```bash
-curl -sI "https://$D/config.json" | grep -i cache
-curl -sI "https://$D/content/index.json" | grep -i cache
+# 连打两次，应该都是 Miss，且没有 age（TTL 为 0，不缓存）
+curl -sI "https://$D/config.json" | grep -iE 'x-cache|age'
+curl -sI "https://$D/config.json" | grep -iE 'x-cache|age'
+
+# 第一次 Miss，第二次 Hit，并且 age 会增加
+curl -sI "https://$D/content/SAA-C03/test/questions.json" | grep -iE 'x-cache|age'
+curl -sI "https://$D/content/SAA-C03/test/questions.json" | grep -iE 'x-cache|age'
 ```
+
+**再做两个实验**
+
+1. 改 `config.json` 的内容重新上传，再请求：应该立刻看到新内容，不需要失效。
+2. 改 `questions.json` 的内容重新上传，再请求：应该还是旧内容，直到你手动失效或 TTL 到期。
+
+这两个实验就是「为什么配置不能缓存、内容可以缓存」的答案。
 
 **回答**
 
 1. 为什么 `config.json` 不能缓存？
 2. 失效（invalidation）为什么要单独做？它收费吗？
+
+**回答记录**：[DEVOPS-ANSWERS.md](DEVOPS-ANSWERS.md)
 
 ---
 
@@ -236,6 +271,17 @@ curl -sI "https://$D/content/index.json" | grep -i cache
 4. `aws cloudfront create-invalidation --paths '/*'`
 
 **验收**：改首页一句文案，跑脚本，60 秒内线上能看到。
+
+**发布时注意浏览器缓存**
+
+CloudFront 的 `CachingDisabled` 不管浏览器缓存。上传 `config.json` 时显式带上：
+
+```bash
+aws s3 cp app/web/dist/config.json "s3://<桶名>/config.json" \
+  --cache-control "no-cache" --content-type application/json --region ap-northeast-1
+```
+
+带 hash 的静态资源（`/assets/...`）反过来，可以给 `public, max-age=31536000, immutable`。
 
 **回答**
 

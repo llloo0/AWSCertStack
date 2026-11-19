@@ -79,6 +79,20 @@ Resources:
             - GET
             - HEAD
 
+        CacheBehaviors:
+          - PathPattern: /config.json
+            TargetOriginId: web
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
+          - PathPattern: /content/index.json
+            TargetOriginId: web
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          - PathPattern: /content/*
+            TargetOriginId: web
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # CachingOptimized
+
   WebBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
