@@ -15,7 +15,7 @@ docs/     规划与部署路线
 | --- | --- |
 | Web 应用（`app/web`） | 已完成，本地 mock 模式可跑，视觉已确认 |
 | Lambda（`app/lambda`） | 代码已写，尚未接入部署 |
-| 部署（`devops/`） | **从零开始**：Increment 0–4 已完成；Increment 5 发布脚本已写好（`devops/step-01-static-web.sh`），待执行 |
+| 部署（`devops/`） | **从零开始**：Step 01 已完成：私有桶 + CloudFront + OAC + 缓存行为 + 发布脚本；下一步 Step 02（Lambda + HTTP API） |
 | 参考实现 | 归档在 `solution/reference/`，先别看 |
 
 ## 从零开始部署

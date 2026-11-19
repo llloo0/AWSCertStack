@@ -259,7 +259,7 @@ curl -sI "https://$D/content/SAA-C03/test/questions.json" | grep -iE 'x-cache|ag
 
 ---
 
-### Increment 5：发布脚本（脚本已写好，待执行）
+### Increment 5：发布脚本（已完成）
 
 **解决什么**：手工上传不可重复，换台机器就做不出来。
 
