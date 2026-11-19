@@ -259,11 +259,11 @@ curl -sI "https://$D/content/SAA-C03/test/questions.json" | grep -iE 'x-cache|ag
 
 ---
 
-### Increment 5：发布脚本
+### Increment 5：发布脚本（脚本已写好，待执行）
 
 **解决什么**：手工上传不可重复，换台机器就做不出来。
 
-写一个 `devops/step-01-static-web.sh`，按顺序做四件事：
+脚本：`devops/step-01-static-web.sh`。按顺序做四件事：
 
 1. 构建前端（`npm --prefix app/web run build`）
 2. 把题库复制进发布目录，写 `config.json`
