@@ -266,3 +266,55 @@ MyBucket:
   - 只有固定路径（`index.html`、`config.json`、`content/index.json`）需要失效；
     带 hash 的资源换 URL 就够了。
   - `/*` 适合一次性全清；如果只是改一个文件，精确到那个路径更省额度。
+
+---
+
+## Step 02 · 02.1 第一个 Lambda 函数
+
+### Q1 为什么这次必须 `sam build`，不能直接 `aws cloudformation deploy`？
+
+**我的回答**
+
+- `sam build` 处理源代码和依赖，生成 `sam local` / `sam deploy` 需要的构建产物。
+
+**评审**
+
+- 对，但没答到关键：`aws cloudformation deploy` 只接收模板，它**不理解本地路径**。
+  Lambda 的代码必须已经在 S3（或 inline），否则 CloudFormation 不知道去哪拿代码。
+- 完整链路是：`sam build` 把函数和层打包到 `.aws-sam/build`；`sam deploy` 把产物上传到 S3，
+  把模板里的 `CodeUri` / `ContentUri` 改写成 S3 地址，再调用 CloudFormation 创建 changeset。
+- 所以 `sam deploy` ≈ 打包 + 上传 + `aws cloudformation deploy`。
+- 反过来说，如果代码已经打包好放在 S3，`aws cloudformation deploy` 也能部署 SAM 模板；
+  不能用的只是本地 `CodeUri`。
+
+### Q2 层的 zip 里为什么是 `python/certstack/...`，而不是直接 `certstack/...`？
+
+**我的回答**
+
+- `python/` 是 Lambda Python 运行时的查找路径约定；不按这个结构放，运行时就找不到库。
+
+**评审**
+
+- 对。具体机制：层解压到 `/opt`，Python 运行时会把 `/opt/python` 加进 `sys.path`；
+  通过 pip 装到 `/opt/python/lib/python3.12/site-packages` 的依赖也会被加载。
+- 这正是本地测试时用 `PYTHONPATH=app/lambda/common/python` 模拟的东西。
+- 构建产物 `CommonLayer/python/certstack` 对应运行时的 `/opt/python/certstack`。
+
+### Q3 SAM 给这个函数创建了什么 IAM 角色？权限从哪来？
+
+**我的回答**
+
+- Lambda 执行角色（Execution Role），让函数运行时能以该角色访问其他 AWS 服务，
+  比如写 CloudWatch Logs、读 S3。
+
+**评审**
+
+- 对。具体到这次部署：
+  - 角色名 `CertStack-dev-HealthFunctionRole-XnIN69B2TGPU`
+  - 信任策略：`lambda.amazonaws.com` 可以 `sts:AssumeRole`
+  - 附加的托管策略：`AWSLambdaBasicExecutionRole`（CloudWatch Logs 写入）
+  - 模板里没写 `Policies`，所以**没有** S3 / DynamoDB 权限；health 函数也不需要
+- 以后给函数加 `Policies`（如 `DynamoDBCrudPolicy`、`S3ReadPolicy`），SAM 会往这个角色上
+  加内联策略；也可以传 `Role` 用现有角色。
+- 查看方式：`aws lambda get-function-configuration` 看 `Role`，
+  再用 `aws iam list-attached-role-policies` / `list-role-policies`。
