@@ -424,3 +424,63 @@ MyBucket:
   4. 删掉函数环境变量 `ALLOW_DEV_AUTH` / `DEV_USER_SUB`
   5. 前端 `config.json` 填 pool/client id，`mock` 关掉，走真实登录
 - `require_user` 本身不用改：有授权器时它会直接读 JWT 的 `sub`。
+
+---
+
+## Step 02 · 02.4 Cognito + JWT 授权器
+
+### Q1 无 token 时是谁拒绝了请求——API Gateway 还是 Lambda？
+
+**我的回答**
+
+- API Gateway。
+
+**评审**
+
+- 正确。响应里的 `www-authenticate: Bearer` 和 `{"message":"Unauthorized"}` 是 API Gateway 生成的；
+  Lambda 根本不会被调用，CloudWatch 里也不会有这次的调用日志。
+
+### Q2 JWT 授权器在调用 Lambda 之前校验了哪些东西？
+
+**我的回答**
+
+- 从 `Authorization` 请求头取 token，校验算法和签名。
+
+**评审**
+
+- 对，但还差几项。HTTP API 的 JWT 授权器会校验：
+  - `Authorization: Bearer <token>` 的格式
+  - JWT 结构（三段）
+  - 用 issuer 的 JWKS 验证签名和算法
+  - `iss` 是否等于配置的 issuer
+  - `aud` 是否包含配置的 audience（这里是 App Client ID）
+  - `exp`（以及 `nbf` / `iat` 等时间声明）
+- 它**不校验 scope**，除非你额外配 `AuthorizationScopes`。鉴权到「是不是这个用户」为止，
+  「这个用户能不能做这件事」要在 Lambda 或更细的策略里做。
+
+### Q3 为什么用 ID Token 而不是 Access Token？
+
+**我的回答**
+
+- ID Token 证明「用户是谁」，给客户端用；Access Token 证明「用户能做什么」，给资源服务器用。
+
+**评审**
+
+- 这是标准区分。落到这次的实现：
+  - 授权器的 `audience` 配的是 App Client ID，ID Token 的 `aud` 正好等于它，所以能通过。
+  - Access Token 更适合「按 scope 授权」的场景；我们的接口没有 scope，用 ID Token 更直接。
+- 严格说，API 用 Access Token 是更常见的做法（资源服务器语义更正确）；等以后加 scope 权限时
+  可以切换，届时授权器配置和前端取 token 的地方要一起改。
+
+### Q4 接上 Cognito 后，前端 `config.json` 需要加什么、去掉什么？
+
+**我的回答**
+
+- （未作答）
+
+**评审**
+
+- 要加 `userPoolId`、`userPoolClientId`；`features.auth` 设为 true。
+- 要去掉 `mock: true`，`apiBaseUrl` 用空字符串（同源 `/api`）。
+- **但现在还不能切**：前端还会调 `/api/stats`、`/api/sessions` 等路由，这些还没部署；
+  而且 CloudFront 还没有 `/api/*` 行为。先补齐 API，再改 config。

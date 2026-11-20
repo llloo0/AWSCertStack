@@ -125,11 +125,45 @@ Resources:
     Metadata:
       BuildMethod: python3.12
 
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub certstack-${Env}
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+  
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: web
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
       Name: !Sub certstack-${Env}
       Description: CertStack API
+      Auth:
+        Authorizers:
+          CognitoAuth:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+              audience:
+                - !Ref UserPoolClient
   
   HealthFunction:
     Type: AWS::Serverless::Function
@@ -166,8 +200,6 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: !Ref Table
-          ALLOW_DEV_AUTH: "true"
-          DEV_USER_SUB: dev-user
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref Table
@@ -178,6 +210,8 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /api/me
             Method: GET
+            Auth:
+              Authorizer: CognitoAuth
   
   Table:
     Type: AWS::DynamoDB::Table
@@ -219,3 +253,7 @@ Outputs:
     Value: !GetAtt HttpApi.ApiEndpoint
   TableName:
     Value: !Ref Table
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
