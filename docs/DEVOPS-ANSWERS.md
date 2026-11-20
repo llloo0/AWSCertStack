@@ -533,3 +533,49 @@ MyBucket:
   2. **改 `config.json`**：`mock: false`、填 `userPoolId` / `userPoolClientId`、
      `apiBaseUrl: ""`（相对路径）。
 - 改完重新发布并失效，才能用真实账号登录、刷题。
+
+---
+
+## Step 02 · 02.6 CloudFront 接 API + 前端切真实模式
+
+### Q1 为什么 `/api/*` 要用 `CachingDisabled` 和 `AllViewerExceptHostHeader`？
+
+**我的回答**
+
+- `/api/*` 返回的是动态内容。
+
+**评审**
+
+- 对，但最关键的原因是**缓存键共享**：`/api/me` 的响应因用户而异。
+  如果边缘节点按 URL 缓存，A 用户的资料可能被 B 用户拿到。
+- `AllViewerExceptHostHeader` 负责把 `Authorization`、请求体、查询串、Cookie 转发给
+  API Gateway；Host 头保留 origin 的域名。
+- 另外还要允许 `PUT/PATCH/POST/DELETE`，因为默认缓存行为只放行 GET/HEAD。
+
+### Q2 经 CloudFront 同源之后，为什么不需要给 API 配 CORS？
+
+**我的回答**
+
+- API 请求和 Web 页面都在 CloudFront 的同一个域名下，属于同源。
+
+**评审**
+
+- 正确。同源策略只看 scheme / host / port；浏览器看到的是同一个 CloudFront 域名，
+  实际由 CloudFront 转发到 `execute-api`，浏览器不感知。
+- 只有直接访问 `execute-api` 域名，或者换自定义域名时，才需要 CORS 预检和
+  `Access-Control-Allow-*` 响应头。
+
+### Q3 浏览器登录后 ID Token 存在哪里？请求时怎么带上？
+
+**我的回答**
+
+- 存在浏览器的 localStorage。
+
+**评审**
+
+- 对。Amplify v6 在 Web 上默认把 token 存在 localStorage，key 形如
+  `CognitoIdentityServiceProvider.<clientId>.<username>.idToken`（refresh token 也在）。
+- 请求链路：`fetchAuthSession()` 读取会话并在过期前用 refresh token 刷新 →
+  `getIdToken()` 取 ID Token → `api.ts` 设置 `Authorization: Bearer <token>`。
+- 安全提醒：localStorage 可被 XSS 读取；更安全的做法是 httpOnly cookie。
+  当前 SPA 方案可以接受，但要配 CSP，并避免任何 XSS 入口。

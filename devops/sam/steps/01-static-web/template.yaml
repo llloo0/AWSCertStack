@@ -67,6 +67,11 @@ Resources:
             OriginAccessControlId: !Ref WebOAC
             S3OriginConfig:
               OriginAccessIdentity: ''
+          - Id: api
+            DomainName: !Select [1, !Split ['://', !GetAtt HttpApi.ApiEndpoint]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
 
         DefaultCacheBehavior:
           TargetOriginId: web
@@ -96,6 +101,13 @@ Resources:
             ViewerProtocolPolicy: redirect-to-https
             CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # CachingOptimized
             Compress: true
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # AllViewerExceptHostHeader
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
 
   WebBucketPolicy:
     Type: AWS::S3::BucketPolicy
