@@ -66,6 +66,8 @@ python3 -m venv .venv && .venv/bin/pip install pytest moto boto3
 | `CONTENT_BUCKET` | 内容包所在桶 | step 02 |
 | `CONTENT_INDEX_KEY` | 内容索引对象键 | step 02 |
 | `ALLOWED_ORIGINS` | 本地开发 CORS 白名单 | step 03 |
+| `ALLOW_DEV_AUTH` | 临时允许无 JWT（仅 dev，接 Cognito 前使用） | step 04 |
+| `DEV_USER_SUB` | 临时固定用户 ID（配合 `ALLOW_DEV_AUTH`） | step 04 |
 
 应用代码只依赖这些环境变量，不依赖资源名字或 CFN 逻辑 ID——这是能换掉
 SAM/Terraform 的前提。

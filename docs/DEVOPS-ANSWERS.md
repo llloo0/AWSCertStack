@@ -368,3 +368,59 @@ MyBucket:
   - **IAM 授权（SigV4）**：适合服务间调用，不适合浏览器 SPA。
 - API key 只用于用量统计和限流，不是身份认证，不能当鉴权用。
 - 加 authorizer 后，路由默认拒绝匿名请求；健康检查可以保留 `Auth: NONE`。
+
+---
+
+## Step 02 · 02.3 DynamoDB + `/api/me`
+
+### Q1 为什么用 `PROVISIONED 5/5`，而不是按需（On-Demand）？
+
+**我的回答**
+
+- 预置容量成本可控。
+
+**评审**
+
+- 方向对，但理由可以说得更具体：
+  - DynamoDB 的永久免费额度是 **25 GB 存储 + 25 RCU / 25 WCU（预置）**。
+    这张表 5/5，加 `gsi1` 5/5，一共 10/10，稳定落在免费额度内。
+  - 按需模式按请求计费；这个应用量很小，费用也只是几美分，但预置模式是**可预测**的。
+  - 预置的代价是要规划容量，突发流量可能被节流；单用户场景不需要弹性。
+  - `BillingModeSummary` 为空就代表 PROVISIONED（默认值）。以后随时可以切成 On-Demand，
+    不涉及数据迁移。
+
+### Q2 SAM 的 `DynamoDBCrudPolicy` 实际生成了什么权限？够用吗？
+
+**我的回答**
+
+- 生成了对 DynamoDB 的读写查询权限，够用。
+
+**评审**
+
+- 对，但具体是这些 action（内联策略 `ProfileFunctionRolePolicy0`）：
+  `GetItem`、`PutItem`、`UpdateItem`、`DeleteItem`、`Query`、`Scan`、
+  `BatchGetItem`、`BatchWriteItem`、`DescribeTable`、`ConditionCheckItem`
+- 资源范围是表本身 + `table/certstack-dev/index/*`，已经覆盖 GSI。
+- 「够用」是对的：profile 只需要 Get/Put/Update/Query。但它**不是最小权限**：
+  `DeleteItem`、`Scan`、`Batch*` 都没有用到。SAM 的策略模板是粗粒度的，
+  生产环境可以换成只包含必需 action 的自定义策略。
+
+### Q3 `ALLOW_DEV_AUTH` 有什么问题？接 Cognito 要改什么？
+
+**我的回答**
+
+- 写死了一个 user，作为测试没什么问题。
+
+**评审**
+
+- 测试阶段确实可以，但要知道它的边界：
+  - 它**完全绕过鉴权**：任何人调 `/api/me` 都会读写 `dev-user` 的数据。
+  - 所有请求共享同一个身份，没法验证多用户隔离。
+  - 如果忘了关就上生产，等于没有登录。
+- 接 Cognito 时要改五处：
+  1. 加 `UserPool` + `UserPoolClient`
+  2. 给 `HttpApi` 配 JWT authorizer（issuer + audience）
+  3. 给 `/api/me` 路由加 `Auth: { Authorizer: CognitoAuth }`
+  4. 删掉函数环境变量 `ALLOW_DEV_AUTH` / `DEV_USER_SUB`
+  5. 前端 `config.json` 填 pool/client id，`mock` 关掉，走真实登录
+- `require_user` 本身不用改：有授权器时它会直接读 JWT 的 `sub`。

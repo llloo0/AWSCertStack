@@ -52,12 +52,21 @@ def json_response(event: dict, status: int, body: dict) -> dict:
 
 
 def require_user(event: dict) -> str:
-    """从 API Gateway HTTP API 的 JWT 授权器结果里取 sub。"""
+    """从 API Gateway HTTP API 的 JWT 授权器结果里取 sub。
+
+    接入 Cognito 之前，可以用 ALLOW_DEV_AUTH=true + DEV_USER_SUB 临时固定一个用户。
+    这个开关只应该在 dev 环境、且只在你正在调的那个函数上打开。
+    """
+    sub = None
     try:
         claims = event["requestContext"]["authorizer"]["jwt"]["claims"]
+        sub = claims.get("sub")
     except (KeyError, TypeError):
-        raise HttpError(401, "UNAUTHENTICATED", "missing JWT claims")
-    sub = claims.get("sub")
+        sub = None
+
+    if not sub and os.environ.get("ALLOW_DEV_AUTH", "").lower() == "true":
+        sub = os.environ.get("DEV_USER_SUB") or "dev-user"
+
     if not sub:
         raise HttpError(401, "UNAUTHENTICATED", "missing JWT subject")
     return sub
