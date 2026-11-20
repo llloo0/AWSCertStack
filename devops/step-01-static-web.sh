@@ -10,7 +10,7 @@ PROFILE="${AWS_PROFILE:-certstack}"
 REGION="${AWS_REGION:-ap-northeast-1}"
 STACK="${STACK_NAME:-CertStack-dev}"
 ENV_NAME="${ENV_NAME:-dev}"
-STAGE="01-static-web"
+STAGE="02-api"
 WEB_ROOT="app/web/dist"
 
 export AWS_PROFILE="$PROFILE"
@@ -24,7 +24,7 @@ say "读取栈输出"
 STATUS="$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
   --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
 if [[ -z "$STATUS" || "$STATUS" == "None" ]]; then
-  echo "栈 $STACK 不存在，先完成 Increment 0–4 的部署" >&2
+  echo "栈 $STACK 不存在，先完成 Step 01/02 的部署" >&2
   exit 1
 fi
 
@@ -36,8 +36,10 @@ output() {
 BUCKET="$(output WebBucketName)"
 DIST_ID="$(output DistributionId)"
 DOMAIN="$(output DistributionDomain)"
+POOL_ID="$(output UserPoolId)"
+CLIENT_ID="$(output UserPoolClientId)"
 
-for v in BUCKET DIST_ID DOMAIN; do
+for v in BUCKET DIST_ID DOMAIN POOL_ID CLIENT_ID; do
   if [[ -z "${!v}" || "${!v}" == "None" ]]; then
     echo "栈输出缺少 $v，检查模板的 Outputs" >&2
     exit 1
@@ -47,6 +49,8 @@ done
 echo "bucket=$BUCKET"
 echo "distribution=$DIST_ID"
 echo "domain=$DOMAIN"
+echo "user_pool=$POOL_ID"
+echo "user_pool_client=$CLIENT_ID"
 
 say "1/6 生成题库内容包"
 python3 data/export_content.py | tail -3
@@ -63,9 +67,12 @@ cp -r data/dist/content "$WEB_ROOT/content"
 cat > "$WEB_ROOT/config.json" <<JSON
 {
   "stage": "$STAGE",
-  "mock": true,
+  "mock": false,
   "env": "$ENV_NAME",
   "region": "$REGION",
+  "userPoolId": "$POOL_ID",
+  "userPoolClientId": "$CLIENT_ID",
+  "apiBaseUrl": "",
   "contentBaseUrl": "/content",
   "features": { "content": true, "api": true, "auth": true },
   "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

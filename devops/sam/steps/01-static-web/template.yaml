@@ -212,6 +212,136 @@ Resources:
             Method: GET
             Auth:
               Authorizer: CognitoAuth
+        Stats:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/stats
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuth
+        MePatch:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/me
+            Method: PATCH
+            Auth:
+              Authorizer: CognitoAuth
+  
+  SessionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub certstack-${Env}-sessions
+      CodeUri: app/lambda/sessions/
+      Handler: app.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 512
+      Timeout: 15
+      Layers: [!Ref CommonLayer]
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+          CONTENT_BUCKET: !Ref WebBucket
+          CONTENT_INDEX_KEY: content/index.json
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - S3ReadPolicy:
+            BucketName: !Ref WebBucket
+      Events:
+        Create:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/sessions
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuth
+        List:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/sessions
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuth
+        Get:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: "/api/sessions/{id}"
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuth
+        Answer:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: "/api/sessions/{id}/answers/{qid}"
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuth
+        Finish:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: "/api/sessions/{id}/finish"
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuth
+
+  StudyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub certstack-${Env}-study
+      CodeUri: app/lambda/study/
+      Handler: app.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 10
+      Layers: [!Ref CommonLayer]
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+      Events:
+        Due:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/srs/due
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuth
+        Bookmarks:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/bookmarks
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuth
+        UpdateBookmark:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: "/api/bookmarks/{qid}"
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuth
+        DeleteBookmark:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: "/api/bookmarks/{qid}"
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuth
   
   Table:
     Type: AWS::DynamoDB::Table

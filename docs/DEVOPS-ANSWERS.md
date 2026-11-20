@@ -484,3 +484,52 @@ MyBucket:
 - 要去掉 `mock: true`，`apiBaseUrl` 用空字符串（同源 `/api`）。
 - **但现在还不能切**：前端还会调 `/api/stats`、`/api/sessions` 等路由，这些还没部署；
   而且 CloudFront 还没有 `/api/*` 行为。先补齐 API，再改 config。
+
+---
+
+## Step 02 · 02.5 补齐 API 路由
+
+### Q1 为什么 Sessions 需要 `S3ReadPolicy`，而 Study 不需要？
+
+**我的回答**
+
+- Study 不会去 S3 请求数据。
+
+**评审**
+
+- 对。Sessions 在创建会话和判分时要读内容包的 `meta.json`
+  （`content/<exam>/<hash>/meta.json`），用来校验 qid、正确答案、section 和 tag；
+  这些文件在 WebBucket 里，所以需要 `s3:GetObject`。
+- Study 只读写 DynamoDB 里的 SRS 和书签，不碰内容文件。
+- Health 两者都不需要，所以它连 `TABLE_NAME` 都没有。
+
+### Q2 `/api/health` 不加授权器；如果加上会怎样？
+
+**我的回答**
+
+- 加上也不会怎么样，只是访问健康检查也要先验证。
+
+**评审**
+
+- 功能上确实还能用，但会带来几个副作用：
+  - 监控、CI、uptime 探针没法匿名调用，健康检查失去「随时可探活」的意义。
+  - 健康检查从此依赖 Cognito；Cognito 出问题时，连「服务是否活着」都判断不了。
+  - 它不返回敏感信息，加鉴权没有实际安全收益。
+- 所以保持 `Auth: NONE`。如果确实不想公开，应该用 WAF/IP 白名单或单独的内部控制面，
+  而不是给它加用户鉴权。
+
+### Q3 API 都通了之后，前端切真实模式之前还差哪一步？
+
+**我的回答**
+
+- （未作答）
+
+**评审**
+
+- 差两件事：
+  1. **CloudFront 加 `/api/*` 行为**，origin 指向 API Gateway 的 `execute-api` 域名；
+     缓存策略用 `CachingDisabled`，origin request policy 用 `AllViewerExceptHostHeader`
+     把 `Authorization` 转发过去。这样前端和 API 同源，不需要 CORS。
+  2. **改 `config.json`**：`mock: false`、填 `userPoolId` / `userPoolClientId`、
+     `apiBaseUrl: ""`（相对路径）。
+- 改完重新发布并失效，才能用真实账号登录、刷题。
