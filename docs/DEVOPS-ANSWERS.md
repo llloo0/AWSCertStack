@@ -632,3 +632,51 @@ MyBucket:
   - 删除操作本身需要审批和记录
 - 生产做法：用 resource import 接管已有日志组，或用自定义资源修改 retention；
   给日志组设 `DeletionPolicy: Retain`，删栈时不删日志。
+
+---
+
+## Step 03 · 03.2 SNS + CloudWatch 告警
+
+### Q1 为什么 Alarm 的动作走 SNS，而不是直接发邮件？
+
+**我的回答**
+
+- SNS 是扇出中枢和通用胶水，把「告警触发」和「通知送达」解耦。
+
+**评审**
+
+- 对。补充几点：
+  - CloudWatch Alarm 的 `AlarmActions` 只接受 SNS topic ARN（或特定服务），不支持直接填邮箱。
+  - SNS 可以同时挂 email、SMS、HTTPS、SQS、Lambda 等多个订阅；以后加 Slack 机器人
+    或工单系统，不用改 Alarm。
+  - SNS 负责重试和投递；email 订阅需要点确认链接，未确认不会收到。
+
+### Q2 Lambda Errors 为什么用 `Sum` 而不是 `Average`？
+
+**我的回答**
+
+- Sum 代表这个时间段出问题的总量，Average 意义不明。
+
+**评审**
+
+- 对。`Errors` 是计数指标：Period 5 分钟、Statistic Sum 表示这 5 分钟内一共错了几次；
+  Average 是「每个数据点的平均值」，会把尖峰稀释掉。
+- 阈值 1 + Sum 的含义就是「5 分钟内至少错 1 次」。
+- 延迟、错误率这类指标才用 Average / P99。
+
+### Q3 API Gateway 5xx 和 Lambda Errors 有什么区别？为什么两个都要？
+
+**我的回答**
+
+- 一个是 API Gateway 层的错误，一个是 Lambda 本身的错误。
+
+**评审**
+
+- 对。展开一下：
+  - `AWS/ApiGateway 5xxError`：客户端收到的 5xx，包括集成失败、超时、权限问题、
+    authorizer 错误、路由/集成配置错误。
+  - `AWS/Lambda Errors`：函数执行抛异常或被运行时终止。
+  - Lambda 错误通常会被 API Gateway 转成 502/504，所以两个都会亮；
+    但 API 5xx 也可能与 Lambda 无关（权限、集成配置），Lambda Errors 也可能不经过 API
+    （异步调用、直接 invoke）。所以两个都要。
+  - 4xx 是客户端错误，不在 5xx 里，需要单独看 `4xxError`。
