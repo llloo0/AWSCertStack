@@ -22,8 +22,8 @@ const RELEARN_MS = 10 * 60_000;
 interface MockSession {
   id: string;
   exam: string;
-  mode: 'practice' | 'exam';
-  status: 'active' | 'finished';
+  mode: 'practice' | 'exam' | 'review';
+  status: 'active' | 'finished' | 'abandoned';
   count: number;
   questionIds: string[];
   startedAt: string;
@@ -264,13 +264,20 @@ export const mockApi = {
 
   async createSession(body: {
     exam: string;
-    mode: 'practice' | 'exam';
+    mode: 'practice' | 'exam' | 'review';
     count?: number;
     tags?: string[];
   }): Promise<CreatedSession> {
     const content = await loadExam(body.exam);
     let pool = content.questions;
-    if (body.tags && body.tags.length > 0) {
+    if (body.mode === 'review') {
+      const dueIds = new Set(
+        Object.values(state.srs)
+          .filter((card) => card.dueAt <= iso(0) && card.exam === body.exam)
+          .map((card) => card.questionId),
+      );
+      pool = pool.filter((q) => dueIds.has(q.id));
+    } else if (body.tags && body.tags.length > 0) {
       const wanted = new Set(body.tags);
       pool = pool.filter((q) => q.tags.some((t) => wanted.has(t)));
     }
@@ -386,6 +393,16 @@ export const mockApi = {
       correctKeys: session.mode === 'practice' ? correctKeys : undefined,
       answeredAt: iso(0),
     };
+  },
+
+  async abandon(sessionId: string) {
+    const session = state.sessions.find((s) => s.id === sessionId);
+    if (!session) throw new Error('会话不存在');
+    if (session.status === 'active') {
+      session.status = 'abandoned';
+      persist();
+    }
+    return { sessionId, status: session.status };
   },
 
   async finish(sessionId: string): Promise<SessionSummary> {

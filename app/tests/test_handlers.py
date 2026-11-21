@@ -242,6 +242,27 @@ def test_full_practice_flow(aws):
     due = json.loads(study(ev("GET /api/srs/due", query={"limit": "10"}), None)["body"])
     assert due["count"] >= 1
 
+    review = json.loads(
+        sessions(ev("POST /api/sessions", body={"exam": "SAA-C03", "mode": "review", "count": 5}), None)["body"]
+    )
+    assert review["mode"] == "review"
+    assert review["count"] >= 1
+
+    abandoned = json.loads(
+        sessions(ev("POST /api/sessions/{id}/abandon", path={"id": review["id"]}), None)["body"]
+    )
+    assert abandoned["status"] == "abandoned"
+
+    blocked = sessions(
+        ev(
+            "PUT /api/sessions/{id}/answers/{qid}",
+            body={"selected": ["a"]},
+            path={"id": review["id"], "qid": review["questionIds"][0]},
+        ),
+        None,
+    )
+    assert blocked["statusCode"] == 409
+
     bookmark = study(
         ev("PUT /api/bookmarks/{qid}", body={"note": "再看一遍"}, path={"qid": "q1"}), None
     )

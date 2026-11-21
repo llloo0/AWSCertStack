@@ -28,7 +28,7 @@ interface AnswerRecord {
 interface RawSession {
   id: string;
   exam: string;
-  mode: 'practice' | 'exam';
+  mode: 'practice' | 'exam' | 'review';
   status: string;
   questionIds: string[];
   count: number;
@@ -41,12 +41,15 @@ interface RawSession {
 export function Practice() {
   const { lang } = useLang();
   const [search] = useSearchParams();
-  const initialMode = search.get('mode') === 'exam' ? 'exam' : 'practice';
+  const modeParam = search.get('mode');
+  const initialMode = modeParam === 'exam' ? 'exam' : modeParam === 'review' ? 'review' : 'practice';
+  const resumeId = search.get('session');
+  const initialExam = search.get('exam') ?? 'SAA-C03';
 
   const index = useQuery({ queryKey: ['content-index'], queryFn: getContentIndex });
 
-  const [exam, setExam] = useState('SAA-C03');
-  const [mode, setMode] = useState<'practice' | 'exam'>(initialMode);
+  const [exam, setExam] = useState(initialExam);
+  const [mode, setMode] = useState<'practice' | 'exam' | 'review'>(initialMode);
   const [count, setCount] = useState(10);
   const [tags, setTags] = useState<string[]>([]);
   const [showAllTags, setShowAllTags] = useState(false);
@@ -64,6 +67,7 @@ export function Practice() {
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [questionStart, setQuestionStart] = useState(0);
   const [summary, setSummary] = useState<SessionSummary | null>(null);
+  const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(Date.now());
   const finishing = useRef(false);
 
@@ -78,6 +82,7 @@ export function Practice() {
   }, [index.data, exam]);
 
   useEffect(() => {
+    if (resumeId) return;
     const id = localStorage.getItem(ACTIVE_KEY);
     if (!id) return;
     let alive = true;
@@ -98,7 +103,7 @@ export function Practice() {
           total: s.count ?? 0,
         });
         setExam(s.exam ?? 'SAA-C03');
-        setMode(s.mode === 'exam' ? 'exam' : 'practice');
+        setMode(s.mode === 'exam' ? 'exam' : s.mode === 'review' ? 'review' : 'practice');
       } catch {
         localStorage.removeItem(ACTIVE_KEY);
       }
@@ -106,7 +111,7 @@ export function Practice() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [resumeId]);
 
   useEffect(() => {
     if (phase !== 'running' || mode !== 'exam' || !session) return;
@@ -148,7 +153,7 @@ export function Practice() {
       const created = await api.createSession({
         exam,
         mode,
-        count: mode === 'practice' ? count : undefined,
+        count: mode === 'exam' ? undefined : count,
         tags: tags.length > 0 ? tags : undefined,
       });
       const content = await loadExam(exam);
@@ -174,12 +179,17 @@ export function Practice() {
     }
   };
 
-  const resumeSession = async (info: ResumeInfo) => {
+  const resumeById = useCallback(async (id: string) => {
     setBusy(true);
     setError(null);
     try {
-      const data = await api.getSession(info.id);
+      const data = await api.getSession(id);
       const s = data.session as RawSession;
+      if (s.status !== 'active') {
+        localStorage.removeItem(ACTIVE_KEY);
+        setError(lang === 'zh' ? '这组练习已经结束。' : 'This session has already ended.');
+        return;
+      }
       const content = await loadExam(s.exam);
       const byId = new Map(content.questions.map((q) => [q.id, q]));
       const qs = (s.questionIds ?? []).map((id) => byId.get(id)).filter((q): q is Question => Boolean(q));
@@ -196,7 +206,7 @@ export function Practice() {
       const firstUnanswered = qs.findIndex((q) => !records.has(q.id));
 
       if (firstUnanswered === -1) {
-        const done = await api.finish(info.id);
+        const done = await api.finish(id);
         localStorage.removeItem(ACTIVE_KEY);
         setSummary(done);
         setPhase('summary');
@@ -228,7 +238,18 @@ export function Practice() {
     } finally {
       setBusy(false);
     }
-  };
+  }, [lang]);
+
+  const resumeSession = useCallback((info: ResumeInfo) => {
+    void resumeById(info.id);
+  }, [resumeById]);
+
+  const autoResumeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!resumeId || autoResumeRef.current === resumeId) return;
+    autoResumeRef.current = resumeId;
+    void resumeById(resumeId);
+  }, [resumeId, resumeById]);
 
   const discardResume = () => {
     if (resume) localStorage.removeItem(ACTIVE_KEY);
@@ -249,6 +270,55 @@ export function Practice() {
     });
     setPhase('setup');
   };
+
+  useEffect(() => {
+    setCopied(false);
+  }, [indexNow]);
+
+  const copyQuestion = useCallback(async () => {
+    if (!current) return;
+    const stem = (pick(current.stem.text, lang) || htmlToText(pick(current.stem.html, lang))).trim();
+    const options = current.options.map((option, i) => {
+      const text = pick(option.text, lang) || htmlToText(pick(option.html, lang));
+      return `${String.fromCharCode(65 + i)}. ${text}`;
+    });
+    const text = [stem, '', ...options].join('\n');
+    try {
+      await copyText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [current, lang]);
+
+  const abandon = useCallback(async () => {
+    if (!session) return;
+    const confirmed = window.confirm(
+      lang === 'zh'
+        ? '放弃这组练习？已作答的记录会保留，但这组练习不能再继续。'
+        : 'Abandon this session? Your answers stay, but you cannot resume it.',
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.abandon(session.id);
+      localStorage.removeItem(ACTIVE_KEY);
+      setSession(null);
+      setQuestions([]);
+      setAnswers(new Map());
+      setSummary(null);
+      setResume(null);
+      setSelected([]);
+      setResult(null);
+      setPhase('setup');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [session, lang]);
 
   const jumpTo = (target: number) => {
     const question = questions[target];
@@ -394,9 +464,19 @@ export function Practice() {
     <div className="grid gap-10 lg:grid-cols-[1fr_150px]">
       <div>
         <div className="flex items-baseline justify-between gap-3 border-b border-[var(--rule)] pb-3 text-[12px] text-[var(--muted)]">
-          <button type="button" onClick={exitSession} className="link">
-            {lang === 'zh' ? '退出' : 'Exit'}
-          </button>
+          <span className="flex items-baseline gap-4">
+            <button type="button" onClick={exitSession} className="link">
+              {lang === 'zh' ? '退出' : 'Exit'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void abandon()}
+              disabled={busy}
+              className="link text-[var(--red)]"
+            >
+              {lang === 'zh' ? '放弃' : 'Abandon'}
+            </button>
+          </span>
           <span className="flex items-baseline gap-5">
             <span className="tabular-nums">
               {lang === 'zh' ? `第 ${indexNow + 1} 题，共 ${total} 题` : `${indexNow + 1} of ${total}`}
@@ -419,6 +499,9 @@ export function Practice() {
               <span key={tag}>{tag}</span>
             ))}
             {lang === 'zh' && !hasTranslation(current.stem.text) ? <span>暂无中文</span> : null}
+            <button type="button" onClick={() => void copyQuestion()} className="ml-auto link">
+              {copied ? (lang === 'zh' ? '已复制' : 'Copied') : lang === 'zh' ? '复制题目' : 'Copy'}
+            </button>
           </div>
 
           <div
@@ -598,8 +681,8 @@ function SetupView(props: {
   index: { exams: Record<string, { count: number; tags: Record<string, number> }> } | undefined;
   exam: string;
   setExam: (v: string) => void;
-  mode: 'practice' | 'exam';
-  setMode: (v: 'practice' | 'exam') => void;
+  mode: 'practice' | 'exam' | 'review';
+  setMode: (v: 'practice' | 'exam' | 'review') => void;
   count: number;
   setCount: (v: number) => void;
   tags: string[];
@@ -657,7 +740,7 @@ function SetupView(props: {
                 {lang === 'zh' ? '有一组未完成的练习' : 'Unfinished session'}
               </p>
               <p className="mt-0.5 text-[11px] text-[var(--muted)]">
-                {resume.exam}，{resume.mode === 'exam' ? (lang === 'zh' ? '模考' : 'exam') : lang === 'zh' ? '练习' : 'practice'}，
+                {resume.exam}，{resume.mode === 'exam' ? (lang === 'zh' ? '模考' : 'exam') : resume.mode === 'review' ? (lang === 'zh' ? '复习' : 'review') : lang === 'zh' ? '练习' : 'practice'}，
                 {lang === 'zh' ? `已答 ${resume.answered} / ${resume.total}` : `${resume.answered} of ${resume.total} answered`}
               </p>
             </div>
@@ -705,7 +788,7 @@ function SetupView(props: {
         </Row>
 
         <Row label={lang === 'zh' ? '模式' : 'Mode'}>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-3">
             {[
               {
                 value: 'practice' as const,
@@ -716,6 +799,11 @@ function SetupView(props: {
                 value: 'exam' as const,
                 title: lang === 'zh' ? '全真模考' : 'Mock exam',
                 desc: lang === 'zh' ? '按官方题量与时长，交卷后统一判分' : 'Official size and time, scored at the end',
+              },
+              {
+                value: 'review' as const,
+                title: lang === 'zh' ? '复习' : 'Review',
+                desc: lang === 'zh' ? '只练到期的题目，提交后立即判定' : 'Only due questions, instant feedback',
               },
             ].map((m) => {
               const active = mode === m.value;
@@ -745,7 +833,7 @@ function SetupView(props: {
           </div>
         </Row>
 
-        {mode === 'practice' ? (
+        {mode !== 'exam' ? (
           <Row label={lang === 'zh' ? '题量' : 'Questions'}>
             <div className="flex flex-wrap gap-2">
               {COUNTS.map((c) => (
@@ -799,8 +887,8 @@ function SetupView(props: {
         <div className="flex flex-wrap items-center justify-between gap-4 py-5">
           <p className="text-[11px] text-[var(--muted)]">
             {lang === 'zh'
-              ? `${exam}，${mode === 'exam' ? '模考' : '练习'}${mode === 'practice' ? `，${count} 题` : ''}`
-              : `${exam}, ${mode}${mode === 'practice' ? `, ${count} questions` : ''}`}
+              ? `${exam}，${mode === 'exam' ? '模考' : mode === 'review' ? '复习' : '练习'}${mode !== 'exam' ? `，${count} 题` : ''}`
+              : `${exam}, ${mode}${mode !== 'exam' ? `, ${count} questions` : ''}`}
           </p>
           <div className="flex items-center gap-4">
             {error ? <p className="text-[12px] text-[var(--red)]">{error}</p> : null}
@@ -887,6 +975,29 @@ function SummaryView({ summary, onRestart }: { summary: SessionSummary; onRestar
       </section>
     </div>
   );
+}
+
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(area);
+  if (!ok) throw new Error('复制失败，请手动选择文本');
+}
+
+function htmlToText(html: string): string {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return (doc.body.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
 function formatDuration(ms: number): string {

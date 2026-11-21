@@ -35,6 +35,11 @@ Resources:
             Status: Enabled
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 7
+          - Id: expire-noncurrent
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 10
+            ExpiredObjectDeleteMarker: true
       Tags:
         - { Key: Project, Value: CertStack }
         - { Key: Env, Value: !Ref Env }
@@ -303,6 +308,14 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuth
+        Abandon:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: "/api/sessions/{id}/abandon"
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuth
 
   StudyFunction:
     Type: AWS::Serverless::Function
@@ -354,6 +367,30 @@ Resources:
             Method: DELETE
             Auth:
               Authorizer: CognitoAuth
+
+  HealthLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${HealthFunction}
+      RetentionInDays: 14
+
+  ProfileLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ProfileFunction}
+      RetentionInDays: 14
+  
+  SessionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${SessionFunction}
+      RetentionInDays: 14
+  
+  StudyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${StudyFunction}
+      RetentionInDays: 14
   
   Table:
     Type: AWS::DynamoDB::Table

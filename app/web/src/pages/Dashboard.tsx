@@ -53,6 +53,11 @@ export function Dashboard() {
             <Link to="/practice?mode=exam" className="btn btn-outline">
               {lang === 'zh' ? '全真模考' : 'Mock exam'}
             </Link>
+            {summary.dueToday > 0 ? (
+              <Link to={`/practice?mode=review&exam=${settings.targetExam}`} className="btn btn-outline">
+                {lang === 'zh' ? `复习 ${summary.dueToday}` : `Review ${summary.dueToday}`}
+              </Link>
+            ) : null}
           </div>
         </div>
       </section>
@@ -92,31 +97,75 @@ export function Dashboard() {
             />
           ) : (
             <div className="ledger">
-              {recentSessions.map((s) => (
-                <div key={s.id} className="grid grid-cols-[86px_1fr_auto] items-baseline gap-4 py-3">
-                  <span className="text-[11px] tabular-nums text-[var(--muted)]">
-                    {new Date(s.startedAt).toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-US', {
-                      month: '2-digit',
-                      day: '2-digit',
-                    })}
-                  </span>
-                  <span className="text-[13px]">
-                    {s.exam}
-                    <span className="ml-2 text-[11px] text-[var(--muted)]">
-                      {s.mode === 'exam' ? (lang === 'zh' ? '模考' : 'Exam') : lang === 'zh' ? '练习' : 'Practice'}
-                      {s.status === 'active' ? (lang === 'zh' ? '（未完成）' : ' (open)') : ''}
+              {recentSessions.map((s) => {
+                const active = s.status === 'active';
+                const modeLabel =
+                  s.mode === 'exam'
+                    ? lang === 'zh'
+                      ? '模考'
+                      : 'Exam'
+                    : s.mode === 'review'
+                      ? lang === 'zh'
+                        ? '复习'
+                        : 'Review'
+                      : lang === 'zh'
+                        ? '练习'
+                        : 'Practice';
+                const statusLabel =
+                  s.status === 'active'
+                    ? lang === 'zh'
+                      ? '（未完成）'
+                      : ' (open)'
+                    : s.status === 'abandoned'
+                      ? lang === 'zh'
+                        ? '（已放弃）'
+                        : ' (abandoned)'
+                      : '';
+                const row = (
+                  <>
+                    <span className="text-[11px] tabular-nums text-[var(--muted)]">
+                      {new Date(s.startedAt).toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-US', {
+                        month: '2-digit',
+                        day: '2-digit',
+                      })}
                     </span>
-                  </span>
-                  <span className="text-right">
-                    <span className="figure text-[15px]">
-                      {s.status === 'finished' ? (s.score ?? '—') : '—'}
+                    <span className="text-[13px]">
+                      {s.exam}
+                      <span className="ml-2 text-[11px] text-[var(--muted)]">
+                        {modeLabel}
+                        {statusLabel}
+                      </span>
                     </span>
-                    <span className="ml-2 text-[11px] tabular-nums text-[var(--muted)]">
-                      {s.correctCount !== null ? `${s.correctCount}/${s.total}` : ''}
+                    <span className="text-right">
+                      {active ? (
+                        <span className="link text-[12px]">{lang === 'zh' ? '继续' : 'Resume'}</span>
+                      ) : (
+                        <>
+                          <span className="figure text-[15px]">
+                            {s.status === 'finished' ? (s.score ?? '—') : '—'}
+                          </span>
+                          <span className="ml-2 text-[11px] tabular-nums text-[var(--muted)]">
+                            {s.correctCount !== null ? `${s.correctCount}/${s.total}` : ''}
+                          </span>
+                        </>
+                      )}
                     </span>
-                  </span>
-                </div>
-              ))}
+                  </>
+                );
+                return active ? (
+                  <Link
+                    key={s.id}
+                    to={`/practice?session=${s.id}`}
+                    className="grid grid-cols-[86px_1fr_auto] items-baseline gap-4 py-3 transition hover:bg-[var(--navy-soft)]"
+                  >
+                    {row}
+                  </Link>
+                ) : (
+                  <div key={s.id} className="grid grid-cols-[86px_1fr_auto] items-baseline gap-4 py-3">
+                    {row}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>

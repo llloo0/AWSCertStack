@@ -83,6 +83,7 @@ say "4/6 上传带 hash 的静态资源（长缓存）"
 if [[ -d "$WEB_ROOT/assets" ]]; then
   aws s3 sync "$WEB_ROOT/assets" "s3://$BUCKET/assets" \
     --delete \
+    --size-only \
     --cache-control "public, max-age=31536000, immutable" \
     --region "$REGION"
 fi
@@ -91,6 +92,7 @@ say "5/6 上传内容包与入口文件"
 # 内容包的目录名带 hash，可以长缓存；先传文件，再覆盖 index.json
 aws s3 sync "$WEB_ROOT/content" "s3://$BUCKET/content" \
   --delete \
+  --size-only \
   --cache-control "public, max-age=31536000, immutable" \
   --region "$REGION"
 

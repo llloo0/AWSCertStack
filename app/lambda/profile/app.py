@@ -15,11 +15,12 @@ def _me(event):
     profile = get_or_create_profile(sub)
     settings = get_settings(sub)
 
-    due = table().query(
+    due_items = table().query(
         IndexName="gsi1",
-        Select="COUNT",
         KeyConditionExpression=Key("gsi1pk").eq(srs_gsi_pk(sub)) & Key("gsi1sk").lte(now_iso()),
-    )
+        Limit=100,
+    ).get("Items", [])
+    due_today = sum(1 for item in due_items if item.get("exam") == settings.get("targetExam"))
     sessions = table().query(
         KeyConditionExpression=Key("PK").eq(user_pk(sub)) & Key("SK").begins_with("SESSION#"),
         ScanIndexForward=False,
@@ -59,7 +60,7 @@ def _me(event):
             "settings": settings,
             "stats": {
                 "accuracy": round(total_correct / total_answered * 100) if total_answered else 0,
-                "dueToday": int(due.get("Count", 0)),
+                "dueToday": due_today,
                 "answeredToday": int((day.get("Item") or {}).get("answered", 0)),
             },
             "recentSessions": recent,

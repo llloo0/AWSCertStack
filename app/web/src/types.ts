@@ -124,7 +124,7 @@ export interface StatsResponse {
 export interface CreatedSession {
   id: string;
   exam: string;
-  mode: 'practice' | 'exam';
+  mode: 'practice' | 'exam' | 'review';
   count: number;
   questionIds: string[];
   startedAt: string;

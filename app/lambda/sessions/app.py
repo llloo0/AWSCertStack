@@ -64,10 +64,61 @@ def _create(event):
     exam = body.get("exam")
     if not exam:
         raise HttpError(400, "MISSING_EXAM", "exam is required")
-    mode = "exam" if body.get("mode") == "exam" else "practice"
+    raw_mode = body.get("mode")
+    mode = "exam" if raw_mode == "exam" else "review" if raw_mode == "review" else "practice"
 
     meta = exam_meta(exam)
     cfg = meta["config"]
+
+    if mode == "review":
+        requested = body.get("count", 20)
+        if not isinstance(requested, int) or not 1 <= requested <= 100:
+            raise HttpError(400, "INVALID_COUNT", "count must be an integer between 1 and 100")
+
+        due = table().query(
+            IndexName="gsi1",
+            KeyConditionExpression=Key("gsi1pk").eq(srs_gsi_pk(sub)) & Key("gsi1sk").lte(now_iso()),
+            Limit=100,
+        ).get("Items", [])
+        due = [entry for entry in due if entry.get("exam") == exam]
+        if not due:
+            raise HttpError(400, "NO_DUE", "no due questions for this exam")
+
+        picked_ids = [entry["questionId"] for entry in due[:requested]]
+        session_id = str(uuid.uuid4())
+        duration_seconds = max(600, len(picked_ids) * 60)
+        item = {
+            "PK": user_pk(sub),
+            "SK": session_sk(session_id),
+            "entity": "SESSION",
+            "id": session_id,
+            "exam": exam,
+            "mode": mode,
+            "status": "active",
+            "questionIds": picked_ids,
+            "count": len(picked_ids),
+            "tags": [],
+            "startedAt": now_iso(),
+            "deadlineAt": _iso_in(duration_seconds),
+            "durationSeconds": duration_seconds,
+        }
+        get_or_create_profile(sub)
+        table().put_item(Item=item)
+        return json_response(
+            event,
+            201,
+            {
+                "id": session_id,
+                "exam": exam,
+                "mode": mode,
+                "count": len(picked_ids),
+                "questionIds": picked_ids,
+                "startedAt": item["startedAt"],
+                "deadlineAt": item["deadlineAt"],
+                "durationSeconds": duration_seconds,
+                "passingScore": cfg["passingScore"],
+            },
+        )
 
     if mode == "exam":
         requested = int(cfg["totalQuestions"])
@@ -246,7 +297,7 @@ def _answer(event):
     selected = _normalize(body.get("selected"))
     correct_keys = _normalize(question["correct"])
     is_correct = selected == correct_keys
-    reveal = session.get("mode") == "practice"
+    reveal = session.get("mode") in ("practice", "review")
 
     try:
         elapsed_raw = int(body.get("elapsedMs") or 0)
@@ -298,6 +349,30 @@ def _answer(event):
             "answeredAt": item["createdAt"],
         },
     )
+
+
+# --------------------------------------------------------------------------- 放弃
+def _abandon(event):
+    sub = require_user(event)
+    session_id = (event.get("pathParameters") or {}).get("id")
+    if not session_id:
+        raise HttpError(400, "MISSING_ID", "session id is required")
+
+    session = _get_session(sub, session_id)
+    if not session:
+        raise HttpError(404, "SESSION_NOT_FOUND", "session not found")
+
+    status = session.get("status")
+    if status == "active":
+        table().update_item(
+            Key={"PK": user_pk(sub), "SK": session_sk(session_id)},
+            UpdateExpression="SET #status = :status, abandonedAt = :now",
+            ExpressionAttributeNames={"#status": "status"},
+            ExpressionAttributeValues={":status": "abandoned", ":now": now_iso()},
+        )
+        status = "abandoned"
+
+    return json_response(event, 200, {"sessionId": session_id, "status": status})
 
 
 # --------------------------------------------------------------------------- 交卷
@@ -400,6 +475,8 @@ def handler(event, context):
             return _detail(event)
         if route == "PUT /api/sessions/{id}/answers/{qid}":
             return _answer(event)
+        if route == "POST /api/sessions/{id}/abandon":
+            return _abandon(event)
         if route == "POST /api/sessions/{id}/finish":
             return _finish(event)
         raise HttpError(404, "NOT_FOUND", f"no route for {route}")

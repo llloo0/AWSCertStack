@@ -79,7 +79,7 @@ export const api = {
 
   createSession: (body: {
     exam: string;
-    mode: 'practice' | 'exam';
+    mode: 'practice' | 'exam' | 'review';
     count?: number;
     tags?: string[];
   }) =>
@@ -103,6 +103,13 @@ export const api = {
       : request<AnswerResult>(`/api/sessions/${sessionId}/answers/${questionId}`, {
           method: 'PUT',
           body: JSON.stringify({ selected, elapsedMs }),
+        }),
+
+  abandon: (sessionId: string) =>
+    useMock()
+      ? mockApi.abandon(sessionId)
+      : request<{ sessionId: string; status: string }>(`/api/sessions/${sessionId}/abandon`, {
+          method: 'POST',
         }),
 
   finish: (sessionId: string) =>
